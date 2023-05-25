@@ -1,30 +1,12 @@
 import { Task } from "@/components/List";
 import { APP_BASEURL } from "./config";
-import { Message, WebSocketConnect } from "./websocket";
+import { WebSocketConnect } from "./websocket";
 import { Events } from "./base";
-import { debounce } from "lodash";
-
-function fdebounce(delay: number = 10010) {
-    return function decorator(targer: Object, prop: string, descriptor: PropertyDescriptor) {
-      const original = descriptor.value;
-      if (typeof original === 'function') {
-        descriptor.value = debounce(async function(this: any, ...args: any[]) {
-            original.apply(this, args);
-          }, delay);
-      }
-    };
-  }
-
+import { PPush } from "./protocol";
 
 // let websocketConn: WebSocketConnect | null = null;
 let taskWebsocketConn: TaskWebSocketConnect | null = null;
 let userWebsocketConn: UserWebSocketConnect | null = null;
-
-
-interface CommonRequest<T> {
-    url: string;
-    data?: T
-}
 
 interface TaskListRequest {
     keyword?: string;
@@ -50,7 +32,7 @@ export class TaskWebSocketConnect extends WebSocketConnect {
     constructor(ip: string, port: number) {
         super(ip, port);
 
-        this.on("push", (data: Message<any>) => {
+        this.on("push", (data: PPush<any>) => {
             console.log("push", data)
             this.emit(data.event, data.data);
         });
@@ -70,6 +52,13 @@ export class TaskWebSocketConnect extends WebSocketConnect {
         });
     }
 
+    async getTaskList(data?: TaskListRequest) {
+        return this.request<Partial<TaskListRequest>, Task[]>({
+            url: "/task/list",
+            data: {},
+        });
+    }
+
     async deleteTask(data: Pick<Task, "id">) {
         return this.request({
             url: "/task/update",
@@ -77,13 +66,6 @@ export class TaskWebSocketConnect extends WebSocketConnect {
                 ...data,
                 status: "delete",
             },
-        });
-    }
-
-    async getTaskList(data?: TaskListRequest) {
-        return this.request<CommonRequest<TaskListRequest>, Task[]>({
-            url: "/task/list",
-            data,
         });
     }
 
@@ -130,7 +112,7 @@ export class UserWebSocketConnect extends WebSocketConnect {
     emit: Events<WxEvent>["emit"] = super.emit;
     constructor(ip: string, port: number) {
         super(ip, port);
-        this.on("push", (data: Message<any>) => {
+        this.on("push", (data: PPush<any>) => {
             console.log("push", data)
             this.emit(data.event, data.data);
         });

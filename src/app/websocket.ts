@@ -5,6 +5,8 @@ import { message } from "antd";
 import { generate_messageid } from "./utils";
 import EventEmitter from "events";
 import { info, error as logError, warn, debug } from "tauri-plugin-log-api";
+import { PPush, PRequest, PRequestProps, PResponse, Kind } from "./protocol";
+import { Events } from "./base";
 
 enum TimeUnit {
     Second = 1000,
@@ -28,34 +30,13 @@ export enum State {
     CLOSED,
 }
 
-export enum MessageType {
-    PING = "ping",
-    PONG = "pong",
-    RESPONSE = "response",
-    PUSH = "push",
-}
-
-interface MessageData {
-    type: MessageType;
-    sequence: string;
-    status: number;
-    data: any;
-}
-
-export interface Message<T> {
-    event: string;
-    data: T;
-}
-
-const heartbeatInterval = 1000 * 60 * 2; // 2分钟
-
 // 请求
 export class Request<T> {
     sequence: string;
     sendTime: number;
     data: T;
-    callback: (response: Response<any>) => void;
-    constructor(sequence: string, data: T, callback: (response: Response<any>) => void) {
+    callback: (response: PResponse<any>) => void;
+    constructor(sequence: string, data: T, callback: (response: PResponse<any>) => void) {
         this.sequence = sequence;
         this.sendTime = Date.now();
         this.data = data;
@@ -63,18 +44,14 @@ export class Request<T> {
     }
 }
 
-export class Response<T> {
-    sequence: string;
-    status: number;
-    data: T;
-    constructor(sequence: string, data: MessageData) {
-        this.sequence = sequence;
-        this.status = data.status;
-        this.data = data.data;
-    }
+type WebsocketEvent = {
+    ["push"]: (data: PPush<any>) => void;
 }
-
 export class WebSocketConnect extends EventEmitter {
+
+    on: Events<WebsocketEvent>["on"] = super.on;
+    emit: Events<WebsocketEvent>["emit"] = super.emit;
+
     private url: string;
     private state: State = State.INIT;
     private _ws: WebSocket | undefined;
@@ -144,20 +121,21 @@ export class WebSocketConnect extends EventEmitter {
     }
 
     protected handleMessage(event: MessageEvent) {
-        const data = JSON.parse(event.data) as MessageData;
-        if (data.status > 400) {
+        const data = JSON.parse(event.data);
+        if (data.ctype === 'response' && data.status > 400) {
             this.ws?.close();
             info(`>>> error message ${data}`);
             return;
         }
-        switch (data.type) {
-            case MessageType.PING:
+        switch (data.ctype) {
+            case 'ping':
                 this.send("pong");
                 break;
-            case MessageType.PONG:
+            case "pong":
                 break;
-            case MessageType.RESPONSE:
-                const response = new Response(data.sequence, data);
+            case "response":
+                const response = new PResponse(data);
+
                 const request = this.sendq.get(response.sequence);
                 if (request) {
                     request.callback(response);
@@ -165,8 +143,9 @@ export class WebSocketConnect extends EventEmitter {
                     info(`>>> request not found ${response.sequence}`);
                 }
                 break;
-            case MessageType.PUSH:
-                this.emit("push", data.data);
+            case "push":
+                const push = new PPush(data);
+                this.emit("push", push);
                 break;
             default:
                 info(`>>> unknown message type ${data.type}`);
@@ -174,7 +153,7 @@ export class WebSocketConnect extends EventEmitter {
         }
     }
 
-    protected request<T, S>(data: T): Promise<S> {
+    protected request<T , S>(data: Omit<PRequestProps<T>, 'sequence'> ): Promise<S> {
         return new Promise(async (resolve, reject) => {
             if (this.state !== State.CONNECTED) {
                 reject("websocket not connected");
@@ -186,9 +165,8 @@ export class WebSocketConnect extends EventEmitter {
                 if (request) {
                     this.sendq.delete(sequence);
                     request.callback(
-                        new Response(sequence, {
+                        new PResponse({
                             sequence: sequence,
-                            type: MessageType.RESPONSE,
                             status: 400,
                             data: "timeout",
                         })
@@ -196,7 +174,7 @@ export class WebSocketConnect extends EventEmitter {
                 }
             }, 10000);
 
-            let callback = (pkt: Response<S>) => {
+            let callback = (pkt: PResponse<S>) => {
                 clearTimeout(tr);
                 this.sendq.delete(sequence);
                 if (pkt.status !== 200) {
@@ -207,12 +185,12 @@ export class WebSocketConnect extends EventEmitter {
                 resolve(pkt.data);
             };
 
-            const sendData = {
+            const sendData = new PRequest({
+                ...data,
                 sequence: sequence,
-                data: data,
-            };
+            });
 
-            this.send(JSON.stringify(sendData));
+            this.send(sendData.toJSON());
             this.sendq.set(sequence, new Request(sequence, data, callback));
         });
     }
