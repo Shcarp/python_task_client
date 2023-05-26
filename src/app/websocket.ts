@@ -32,14 +32,11 @@ export enum State {
 
 // 请求
 export class Request<T> {
-    sequence: string;
-    sendTime: number;
-    data: T;
+
+    prequest: PRequest<T>;
     callback: (response: PResponse<any>) => void;
-    constructor(sequence: string, data: T, callback: (response: PResponse<any>) => void) {
-        this.sequence = sequence;
-        this.sendTime = Date.now();
-        this.data = data;
+    constructor(prequest: PRequest<T>, callback: (response: PResponse<any>) => void) {
+        this.prequest = prequest;
         this.callback = callback;
     }
 }
@@ -191,7 +188,7 @@ export class WebSocketConnect extends EventEmitter {
             });
 
             this.send(sendData.toJSON());
-            this.sendq.set(sequence, new Request(sequence, data, callback));
+            this.sendq.set(sequence, new Request(sendData, callback));
         });
     }
 
