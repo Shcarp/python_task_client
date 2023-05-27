@@ -3,7 +3,7 @@ import Router from "next/router"
 import lottie from "lottie-web";
 import { Card, Col, Row, message } from "antd";
 import { APPTYPE_NAME, APP_API_DEAFULT_PORT, APP_BASEURL } from "@/app/config";
-import { connect } from "@/app/service/connect";
+import { connect } from "@/utils/client/connect";
 
 export enum TaskType {
     Local = "local",
@@ -54,7 +54,7 @@ export default function Index() {
                 try {
                     localStorage.setItem(APPTYPE_NAME, TaskType.Local);
                     await connect("127.0.0.1", APP_API_DEAFULT_PORT);
-                    Router.push("/task");
+                    Router.push("/task-home");
                     break;
                 } catch (error) {
                     message.error("连接失败");

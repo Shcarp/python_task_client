@@ -1,8 +1,10 @@
-import { PPush } from "@/app/protocol";
-import { MessageData, taskConn } from "@/app/service/task";
+import { websocketConn } from "@/utils/client/connect";
+import { PPush } from "@/utils/client/protocol";
+import { MessageData, TaskWebSocketConnect } from "@/utils/client/task";
 import { List, Modal } from "antd";
 import dayjs from "dayjs";
 import { debounce } from "lodash";
+import Router from "next/router";
 import VirtualList from "rc-virtual-list";
 import React, { useImperativeHandle } from "react";
 import { useEffect, useState } from "react";
@@ -42,10 +44,17 @@ const Message = React.forwardRef((_, ref) => {
                 ];
             });
         };
-        taskConn.on("info", handleData);
-        return () => {
-            taskConn.off("info", handleData);
-        };
+
+        if (websocketConn) {
+            const taskConn = new TaskWebSocketConnect(websocketConn);
+            taskConn.on("info", handleData);
+            return () => {
+                taskConn.off("info", handleData);
+            };
+        } else {
+            Router.push("/networkerror");
+        }
+       
     }, []);
 
     useEffect(() => {
@@ -56,10 +65,10 @@ const Message = React.forwardRef((_, ref) => {
             setWidth(width);
         }, 500);
         // 监听窗口变化
-        window.addEventListener("resize", handleHeight);
+        document.addEventListener("resize", handleHeight);
         handleHeight();
         return () => {
-            window.removeEventListener("resize", handleHeight);
+            document.removeEventListener("resize", handleHeight);
         };
     }, []);
 

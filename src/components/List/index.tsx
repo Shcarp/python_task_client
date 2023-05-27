@@ -6,7 +6,9 @@ import { AddTask, IRef } from "../AddTask";
 import { useEffect, useRef, useState } from "react";
 import { debounce } from "lodash";
 import "./index.css";
-import { Task, TaskStatus, taskConn } from "@/app/service/task";
+import { Task, TaskStatus, TaskWebSocketConnect } from "@/utils/client/task";
+import { websocketConn } from "@/utils/client/connect";
+import Router from "next/router";
 
 const TaskTypeMap = {
     fixTime: {
@@ -55,7 +57,10 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     const [height, setHeight] = useState(0);
     const [loadings, setLoadings] = useState<boolean[]>([]);
 
+    const [taskConn, setTaskConn] = useState<TaskWebSocketConnect>();
+
     const handleStart = debounce(async (id: number) => {
+        if (!taskConn) return;
         if (loadings[0]) return;
         try {
             setLoadings([true, loadings[1], loadings[2]]);
@@ -69,6 +74,7 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     }, 500);
 
     const handleRemove = debounce(async (id: number) => {
+        if (!taskConn) return;
         if (loadings[1]) return;
         try {
             setLoadings([loadings[0], true, loadings[2]]);
@@ -86,6 +92,7 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     }, 500);
 
     const handleCancel = debounce(async (id: number) => {
+        if (!taskConn) return;
         if (loadings[2]) return;
         try {
             setLoadings([loadings[0], loadings[1], true]);
@@ -111,20 +118,21 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     };
 
     const start = (item: Task) => {
-        return <a onClick={(e) => handleStart(item.id)}>开始</a>;
+        return <a key={`${item.id}+0`} onClick={(e) => handleStart(item.id)}>开始</a>;
     };
 
     const remove = (item: Task) => {
-        return <a onClick={(e) => handleRemove(item.id)}> 移除</a>;
+        return <a key={`${item.id}+1`} onClick={(e) => handleRemove(item.id)}> 移除</a>;
     };
 
     const cancel = (item: Task) => {
-        return <a onClick={(e) => handleCancel(item.id)}> 取消 </a>;
+        return <a key={`${item.id}+2`} onClick={(e) => handleCancel(item.id)}> 取消 </a>;
     };
 
     const edit = (item: Task) => {
         return (
             <a
+                key={`${item.id}+3`}
                 onClick={(e) => {
                     handleEdit(item);
                 }}
@@ -186,11 +194,20 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
             setHeight(height);
         }, 500);
         // 监听窗口变化
-        window.addEventListener("resize", handleHeight);
+        document.addEventListener("resize", handleHeight);
         handleHeight();
         return () => {
-            window.removeEventListener("resize", handleHeight);
+            document.removeEventListener("resize", handleHeight);
         };
+    }, []);
+
+    useEffect(() => {
+        if (websocketConn) {
+            const taskConn = new TaskWebSocketConnect(websocketConn);
+            setTaskConn(taskConn);
+        } else {
+            Router.push("/networkerror");
+        }
     }, []);
 
     return (

@@ -1,6 +1,9 @@
-import { userConn } from "@/app/service/wechat";
+import { websocketConn } from "@/utils/client/connect";
+import { TaskWebSocketConnect } from "@/utils/client/task";
+import { UserWebSocketConnect } from "@/utils/client/wechat";
 import { Form, Input, Modal, message } from "antd";
-import React, { useImperativeHandle, useState } from "react";
+import Router from "next/router";
+import React, { useEffect, useImperativeHandle, useMemo, useState } from "react";
 
 interface IProps {
     onOk?: () => void;
@@ -18,9 +21,21 @@ export interface IRef {
 export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    const userConn = useMemo(() => {
+        if (!open) return;
+        if (!websocketConn) {
+            Router.push("/login");
+        } else {
+            return new UserWebSocketConnect(websocketConn);
+        }
+    }, [open]);
+    
+
     const [form] = Form.useForm();
 
     const handleOk = async () => {
+        if (!userConn) return;
         try {
             setLoading(true);
             const res = await form?.validateFields();
@@ -34,6 +49,7 @@ export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
             setLoading(false);
         }
     };
+
 
     useImperativeHandle(ref, () => ({
         open: () => {

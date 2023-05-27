@@ -1,6 +1,5 @@
-import { APP_API_DEAFULT_PORT, APP_BASEURL } from "@/app/config";
-import { connect } from "@/app/service/connect";
-import store from "@/app/store";
+import { APP_API_DEAFULT_PORT } from "@/app/config";
+import { connect } from "@/utils/client/connect";
 import { Button, Form, Input } from "antd";
 import Router from "next/router";
 
@@ -10,7 +9,7 @@ const Connect = () => {
         try {
             const res = await from?.validateFields();
             await connect(res.ip, res.port);
-            Router.push("/task");
+            Router.push("/task-home");
         } catch (error) {
             console.log(error);
         }

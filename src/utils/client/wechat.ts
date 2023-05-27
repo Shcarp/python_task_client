@@ -1,7 +1,6 @@
 import EventEmitter from "events";
-import { Events } from "../base";
-import { PPush } from "../protocol";
-import { websocketConn } from "./connect";
+import { Events } from "./base";
+import { PPush } from "./protocol";
 import { WebSocketConnect } from "./websocket";
 
 interface WxUser {
@@ -18,12 +17,9 @@ export class UserWebSocketConnect extends EventEmitter {
 
     private conn: WebSocketConnect;
 
-    constructor() {
+    constructor(conn: WebSocketConnect) {
         super();
-        if (!websocketConn) {
-            throw new Error("websocket connect is not init");
-        }
-        this.conn = websocketConn;
+        this.conn = conn;
         this.conn.on("push", (data: PPush<any>) => {
             this.emit(data.event, data);
         });
@@ -48,5 +44,3 @@ export class UserWebSocketConnect extends EventEmitter {
         });
     }
 }
-
-export const userConn = new UserWebSocketConnect();

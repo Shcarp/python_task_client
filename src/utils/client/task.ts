@@ -1,15 +1,14 @@
 import EventEmitter from "events";
-import { Events } from "../base";
-import { PPush } from "../protocol";
+import { Events } from "./base";
+import { PPush } from "./protocol";
 import { WebSocketConnect } from "./websocket";
-import { websocketConn } from "./connect";
+import { connect, websocketConn } from "./connect";
 
 export interface MessageData {
     sendTime: number;
     msg: string;
     status: 0 | 1 | 2;
 }
-
 
 export interface Task {
     id: number;
@@ -33,7 +32,6 @@ export enum TaskStatus {
     CANCEL = 4,
     DELETE = 5,
 }
-
 
 interface TaskListRequest {
     keyword?: string;
@@ -63,13 +61,9 @@ export class TaskWebSocketConnect extends EventEmitter {
         return this.conn.request.bind(this.conn);
     }
 
-    constructor() {
+    constructor(conn: WebSocketConnect) {
         super();
-        if (!websocketConn) {
-            throw new Error("websocket connect is not init");
-        }
-        this.conn = websocketConn
-
+        this.conn = conn;
         this.conn.on("push", (data: PPush<any>) => {
             this.emit(data.event, data);
         });
@@ -126,6 +120,3 @@ export class TaskWebSocketConnect extends EventEmitter {
         });
     }
 }
-
-export const taskConn: TaskWebSocketConnect = new TaskWebSocketConnect();
-

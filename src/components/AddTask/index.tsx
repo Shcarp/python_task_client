@@ -1,10 +1,12 @@
 import { DatePicker, Form, Input, Modal, Select, message } from "antd";
-import React, { useEffect, useImperativeHandle } from "react";
+import React, { useEffect, useImperativeHandle, useMemo } from "react";
 import { useState } from "react";
 import dayjs from "dayjs";
 import { debounce } from "lodash";
-import { Task, TaskStatus, taskConn } from "@/app/service/task";
-import { userConn } from "@/app/service/wechat";
+import { Task, TaskStatus, TaskWebSocketConnect } from "@/utils/client/task";
+import { UserWebSocketConnect } from "@/utils/client/wechat";
+import { websocketConn } from "@/utils/client/connect";
+import Router from "next/router";
 
 interface IProps {
     onOk?: () => void;
@@ -27,12 +29,47 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
     const [taskType, setTaskType] = useState("fixTime");
     const [memberList, setMemberList] = useState<string[]>([]);
 
+    const taskConn = useMemo(() => {
+        if (!open) return;
+        if (!websocketConn) {
+            Router.push("/networkerror");
+        } else {
+            return new TaskWebSocketConnect(websocketConn);
+        }
+    }, [open]);
+
+    const userConn = useMemo(() => {
+        if (!open) return;
+       
+        
+        if (!websocketConn) {
+            Router.push("/networkerror");
+        } else {
+            const userConn = new UserWebSocketConnect(websocketConn);
+            return  userConn;
+        }
+    }, [open]);
+    
+
+    useEffect(() => {
+        const handle = (members: string[]) => {
+            setMemberList(members);
+        };
+        if (!userConn) return;
+        userConn.on("wx-user/add", handle);
+        return () => {
+            userConn.off("wx-user/add", handle);
+        }
+    }, [userConn]);
+
     const geWxUserList = async () => {
+        if (!userConn) return;
         const res = await userConn.getAllWxUser();
         setMemberList(Array.isArray(res) ? res : []);
     };
 
     const handleOk = debounce(async () => {
+        if (!taskConn) return;
         try {
             const res = await form?.validateFields();
             setLoading(true);
@@ -71,13 +108,8 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
     }, [open]);
 
     useEffect(() => {
-        const handle = (members: string[]) => {
-            setMemberList(members);
-        };
-        userConn.on("wx-user/add", handle);
-        return () => {
-            userConn.off("wx-user/add", handle);
-        };
+
+        
     }, []);
 
     useImperativeHandle(ref, () => ({

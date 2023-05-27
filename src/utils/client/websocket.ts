@@ -2,11 +2,11 @@
 
 import { message } from "antd";
 // import { WebSocket } from "ws";
-import { generate_messageid } from "../utils";
+import { generate_messageid } from "..";
 import EventEmitter from "events";
 import { info, error as logError, warn, debug } from "tauri-plugin-log-api";
-import { PPush, PRequest, PRequestProps, PResponse, Kind } from "../protocol";
-import { Events } from "../base";
+import { PPush, PRequest, PRequestProps, PResponse, Kind } from "./protocol";
+import { Events } from "./base";
 
 enum TimeUnit {
     Second = 1000,

@@ -5,11 +5,12 @@ import { AddTask, IRef as AddTaskRef } from "../AddTask";
 import { AddWxName, IRef as AddNameRef } from "../AddWxName";
 import { debounce } from "lodash";
 import Message from "../Message";
-import { PPush } from "@/app/protocol";
-import { appWindow } from "@tauri-apps/api/window";
-import "./index.css";
+import { PPush } from "@/utils/client/protocol";
 import { TaskList } from "../List";
-import { Task, TaskListResp, TaskStatus, taskConn } from "@/app/service/task";
+import { Task, TaskListResp, TaskStatus, TaskWebSocketConnect } from "@/utils/client/task";
+import "./index.css";
+import { websocketConn } from "@/utils/client/connect";
+import Router from "next/router";
 
 const selectOptions = [
     {
@@ -40,6 +41,8 @@ export const Home = () => {
     const addWxNameRef = useRef<AddNameRef>(null);
     const messageRef = useRef<any>(null);
 
+    const [taskConn, setTaskConn] = useState<TaskWebSocketConnect>();
+
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<Task[]>([]);
 
@@ -52,6 +55,7 @@ export const Home = () => {
     });
 
     const getTaskList = async () => {
+        if (!taskConn) { return }
         try {
             setLoading(true);
             const res = await taskConn.getTaskList({
@@ -77,6 +81,7 @@ export const Home = () => {
 
     useEffect(() => {
         getTaskList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [queryParam]);
 
     useEffect(() => {
@@ -89,19 +94,37 @@ export const Home = () => {
         const handleNum = (data: PPush<number>) => {
             setWait(data.data);
         };
-        getTaskList();
-        taskConn.on("task-list/update", handle);
 
-        taskConn.on("block_num", handleNum);
+        if (websocketConn) {
+            const taskConn = new TaskWebSocketConnect(websocketConn);
+            taskConn.on("task-list/update", handle);
 
-        return () => {
-            taskConn.off("task-list/update", handle);
-            taskConn.off("block_num", handleNum);
-        };
+            taskConn.on("block_num", handleNum);
+            setTaskConn(taskConn);
+            return () => {
+                taskConn.off("task-list/update", handle);
+                taskConn.off("block_num", handleNum);
+            };
+            
+        } else {
+            Router.push("/networkerror");
+        }
     }, []);
 
     useEffect(() => {
-        appWindow.setTitle(`微信群发助手(阻塞的任务数量：${wait}/当前进行中的任务数量：${runingTotal})`);
+        if (taskConn) {
+            getTaskList();
+        }
+    }, [taskConn]);
+
+
+    useEffect(() => {
+        (
+            async () => {
+                const { appWindow } = await import("@tauri-apps/api/window");
+                appWindow.setTitle(`微信群发助手(阻塞的任务数量：${wait}/当前进行中的任务数量：${runingTotal})`);
+            }
+        )()
     }, [runingTotal, wait]);
 
     return (
@@ -130,8 +153,6 @@ export const Home = () => {
                         <Button type="primary" onClick={() => addTaskRef.current?.open()}>
                             添加任务
                         </Button>
-                        <Button type="primary" icon={<IconFont type="wx_message-buju" />}></Button>
-                        <Button type="primary" icon={<IconFont type="wx_message-hengpai" />}></Button>
                         <Button onClick={() => messageRef.current?.open()}>LOG</Button>
                     </Space>
                 </Col>
