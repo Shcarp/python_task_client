@@ -1,26 +1,12 @@
-import { Button, Card, List, Space, Tag, message } from "antd";
+import { Card, List, Space, Tag, message } from "antd";
 import VirtualList from "rc-virtual-list";
-import "./index.css";
+
 import dayjs from "dayjs";
 import { AddTask, IRef } from "../AddTask";
-import { getTaskWebSocketConn } from "@/app/connect";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { debounce } from "lodash";
-
-export interface Task {
-    id: number;
-    name: string;
-    type: TaskType;
-    status: TaskStatus;
-    time: number;
-    member: string[];
-    content: string;
-}
-
-/**
- * 固定时间任务和时间间隔触发任务
- */
-export type TaskType = "fixTime" | "intervalTime";
+import "./index.css";
+import { Task, TaskStatus, taskConn } from "@/app/service/task";
 
 const TaskTypeMap = {
     fixTime: {
@@ -33,29 +19,29 @@ const TaskTypeMap = {
     },
 };
 
-export type TaskStatus = "nostarted" | "progress" | "complete" | "cancel" | "delete";
+// export type TaskStatus = "nostarted" | "progress" | "complete" | "cancel" | "delete";
 
 const TaskStatusMap = {
-    nostarted: {
+    [TaskStatus.NOSTARTED]: {
         name: "未开始",
         color: "blue",
     },
-    progress: {
+    [TaskStatus.PROGRESS]: {
         name: "进行中",
         color: "green",
     },
-    complete: {
+    [TaskStatus.COMPLETE]: {
         name: "已完成",
         color: "yellow",
     },
-    cancel: {
+    [TaskStatus.CANCEL]: {
         name: "已取消",
         color: "red",
     },
-    delete: {
+    [TaskStatus.DELETE]: {
         name: "已删除",
         color: "red",
-    }
+    },
 };
 
 interface TaskListProps {
@@ -64,36 +50,34 @@ interface TaskListProps {
     appendData?: () => void;
 }
 
-const taskConn = getTaskWebSocketConn();
-
 export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading }) => {
     const addTaskRef = useRef<IRef>(null);
-
+    const [height, setHeight] = useState(0);
     const [loadings, setLoadings] = useState<boolean[]>([]);
 
     const handleStart = debounce(async (id: number) => {
         if (loadings[0]) return;
         try {
-            setLoadings([true, loadings[1], loadings[2]])
-            await taskConn.startTask({id});
+            setLoadings([true, loadings[1], loadings[2]]);
+            await taskConn.startTask({ id });
             message.success("开始成功");
         } catch (error) {
             console.log(error);
         } finally {
-            setLoadings([false, loadings[1], loadings[2]])
+            setLoadings([false, loadings[1], loadings[2]]);
         }
     }, 500);
 
     const handleRemove = debounce(async (id: number) => {
         if (loadings[1]) return;
         try {
-            setLoadings([loadings[0], true, loadings[2]])
-            await taskConn.deleteTask({id});
+            setLoadings([loadings[0], true, loadings[2]]);
+            await taskConn.deleteTask({ id });
             message.success("移除成功");
         } catch (error) {
             console.log(error);
         } finally {
-            setLoadings([loadings[0], false, loadings[2]])
+            setLoadings([loadings[0], false, loadings[2]]);
         }
     }, 500);
 
@@ -104,13 +88,13 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     const handleCancel = debounce(async (id: number) => {
         if (loadings[2]) return;
         try {
-            setLoadings([loadings[0], loadings[1], true])
-            await taskConn.stopTask({id});
+            setLoadings([loadings[0], loadings[1], true]);
+            await taskConn.stopTask({ id });
             message.success("取消成功");
         } catch (error) {
             console.log(error);
         } finally {
-            setLoadings([loadings[0], loadings[1], false])
+            setLoadings([loadings[0], loadings[1], false]);
         }
     }, 500);
 
@@ -127,48 +111,36 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     };
 
     const start = (item: Task) => {
-        return (
-            <a onClick={(e) => handleStart(item.id)}>开始</a>
-        );
+        return <a onClick={(e) => handleStart(item.id)}>开始</a>;
     };
 
     const remove = (item: Task) => {
-        return (
-            <a onClick={(e) => handleRemove(item.id)}> 移除</a>
-        );
+        return <a onClick={(e) => handleRemove(item.id)}> 移除</a>;
     };
 
     const cancel = (item: Task) => {
-        return (
-            <a onClick={(e) => handleCancel(item.id) }> 取消 </a>
-        );
+        return <a onClick={(e) => handleCancel(item.id)}> 取消 </a>;
     };
 
     const edit = (item: Task) => {
         return (
-            <a onClick={(e) => { handleEdit(item)}}>编辑 </a>
+            <a
+                onClick={(e) => {
+                    handleEdit(item);
+                }}
+            >
+                编辑{" "}
+            </a>
         );
     };
 
     const renderCardExtra = (item: Task) => {
         const btns = {
-            nostarted: [
-                start,
-                remove,
-                edit,
-            ],
-            progress: [
-                cancel,
-            ],
-            complete: [
-                start,
-                edit,
-            ],
-            cancel: [
-                start,
-                edit,
-            ],
-            delete: []
+            [TaskStatus.NOSTARTED]: [start, remove, edit],
+            [TaskStatus.PROGRESS]: [cancel],
+            [TaskStatus.COMPLETE]: [start, edit],
+            [TaskStatus.CANCEL]: [start, remove, edit],
+            [TaskStatus.DELETE]: [edit],
         };
 
         return (
@@ -206,11 +178,30 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
         if (e.currentTarget.scrollHeight - e.currentTarget.scrollTop === 460) {
             appendData && appendData();
         }
-      };
+    };
+
+    useEffect(() => {
+        const handleHeight = debounce(() => {
+            const height = document.documentElement.clientHeight - 100;
+            setHeight(height);
+        }, 500);
+        // 监听窗口变化
+        window.addEventListener("resize", handleHeight);
+        handleHeight();
+        return () => {
+            window.removeEventListener("resize", handleHeight);
+        };
+    }, []);
 
     return (
         <List dataSource={data} loading={loading}>
-            <VirtualList data={data.filter((item) => item.status !== 'delete')} height={460} itemHeight={100} itemKey={"id"} onScroll={onScroll}>
+            <VirtualList
+                data={data}
+                height={height}
+                itemHeight={100}
+                itemKey={(item: Task) => item.id}
+                onScroll={onScroll}
+            >
                 {(item: Task) => {
                     return (
                         <List.Item>

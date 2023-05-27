@@ -1,10 +1,10 @@
-import { getUserWebSocketConn, getTaskWebSocketConn } from "@/app/connect";
 import { DatePicker, Form, Input, Modal, Select, message } from "antd";
 import React, { useEffect, useImperativeHandle } from "react";
 import { useState } from "react";
-import { Task } from "../List";
 import dayjs from "dayjs";
 import { debounce } from "lodash";
+import { Task, TaskStatus, taskConn } from "@/app/service/task";
+import { userConn } from "@/app/service/wechat";
 
 interface IProps {
     onOk?: () => void;
@@ -15,9 +15,6 @@ export interface IRef {
     open: (item?: Task) => void;
     close: () => void;
 }
-
-const conn = getUserWebSocketConn();
-const taskConn = getTaskWebSocketConn();
 
 // eslint-disable-next-line react/display-name
 export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
@@ -31,7 +28,7 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
     const [memberList, setMemberList] = useState<string[]>([]);
 
     const geWxUserList = async () => {
-        const res = await conn.getAllWxUser();
+        const res = await userConn.getAllWxUser();
         setMemberList(Array.isArray(res) ? res : []);
     };
 
@@ -42,12 +39,12 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
             const requestBody = {
                 ...res,
                 time: taskType === "fixTime" ? res.time.valueOf() : res.time,
-            }
+            };
             switch (opentype) {
-                case 'add':
+                case "add":
                     await taskConn.addTask(requestBody);
                     break;
-                case 'edit':
+                case "edit":
                     await taskConn.editTask(requestBody);
                     break;
                 default:
@@ -63,22 +60,24 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
     }, 500);
 
     const handleClose = () => {
-        form.resetFields()
+        form.resetFields();
         setOpen(false);
     };
 
     useEffect(() => {
-        geWxUserList();
+        if (open) {
+            geWxUserList();
+        }
     }, [open]);
 
     useEffect(() => {
         const handle = (members: string[]) => {
             setMemberList(members);
-        }
-        conn.on("wx-user/add", handle);
+        };
+        userConn.on("wx-user/add", handle);
         return () => {
-            conn.off("wx-user/add", handle);
-        }
+            userConn.off("wx-user/add", handle);
+        };
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -101,8 +100,9 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
             destroyOnClose
             onOk={handleOk}
             okButtonProps={{ loading: loading }}
-            title={ opentype === 'add' ? "添加任务" : "编辑任务" } 
+            title={opentype === "add" ? "添加任务" : "编辑任务"}
             open={open}
+            style={{ top: 20 }}
             onCancel={handleClose}
         >
             <Form
@@ -111,11 +111,16 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
                 initialValues={{
                     type: "fixTime",
                     id: 0,
-                    status: "nostarted",
+                    status: TaskStatus.NOSTARTED,
                 }}
             >
-                <Form.Item hidden label="任务ID" name="id"> <Input></Input> </Form.Item>
-                <Form.Item hidden label="任务状态" name="status"><Input></Input></Form.Item>
+                <Form.Item hidden label="任务ID" name="id">
+                    {" "}
+                    <Input></Input>{" "}
+                </Form.Item>
+                <Form.Item hidden label="任务状态" name="status">
+                    <Input></Input>
+                </Form.Item>
                 <Form.Item label="任务名称" name="name" rules={[{ required: true }]}>
                     <Input placeholder="请输入任务名称"></Input>
                 </Form.Item>
@@ -137,7 +142,7 @@ export const AddTask = React.forwardRef<IRef, IProps>((props, ref) => {
                     )}
                 </Form.Item>
                 <Form.Item label="信息内容" name="content">
-                    <Input placeholder="请输入信息内容"></Input>
+                    <Input.TextArea placeholder="请输入信息内容" />
                 </Form.Item>
                 <Form.Item label="成员" name="member">
                     <Select

@@ -17,8 +17,8 @@ impl NApp {
             LogTarget::LogDir,
             LogTarget::Stdout,
             LogTarget::Webview,
-        ]).build());
-        // .plugin(tauri_plugin_websocket::init());
+        ]).build())
+        .plugin(tauri_plugin_store::Builder::default().build());
         NApp { builder }
     }
 

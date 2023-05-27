@@ -10,3 +10,4 @@ pub fn generate_unique_message_id() -> String {
     let uuid = Uuid::new_v4();
     uuid.to_string()
 }
+

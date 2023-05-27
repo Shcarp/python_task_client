@@ -2,11 +2,11 @@
 
 import { message } from "antd";
 // import { WebSocket } from "ws";
-import { generate_messageid } from "./utils";
+import { generate_messageid } from "../utils";
 import EventEmitter from "events";
 import { info, error as logError, warn, debug } from "tauri-plugin-log-api";
-import { PPush, PRequest, PRequestProps, PResponse, Kind } from "./protocol";
-import { Events } from "./base";
+import { PPush, PRequest, PRequestProps, PResponse, Kind } from "../protocol";
+import { Events } from "../base";
 
 enum TimeUnit {
     Second = 1000,
@@ -43,6 +43,8 @@ export class Request<T> {
 
 type WebsocketEvent = {
     ["push"]: (data: PPush<any>) => void;
+    ["connected"]: () => void;
+    ["closed"]: () => void;
 }
 export class WebSocketConnect extends EventEmitter {
 
@@ -88,15 +90,18 @@ export class WebSocketConnect extends EventEmitter {
             this.ws.onopen = () => {
                 this.state = State.CONNECTED;
                 info("websocket connected");
+                this.emit("connected")
                 resolve();
             };
             this.ws.onclose = (ev) => {
                 if (this.state === State.CLOSEING) {
                     info("websocket closed");
+                    this.emit("closed");
                     return;
                 }
                 if (this.state === State.INIT || this.state === State.RECONNECTING || this.state === State.CONNECTING) {
                     reject("init websocket close");
+                    this.emit("closed");
                     return;
                 }
                 debug("event[onclose] fired");
@@ -106,6 +111,7 @@ export class WebSocketConnect extends EventEmitter {
                 console.log(error);
                 if (this.state === State.INIT || this.state === State.RECONNECTING || this.state === State.CONNECTING) {
                     reject("init websocket close");
+                    this.emit("closed");
                     return;
                 }
                 logError("websocket error");
@@ -119,11 +125,6 @@ export class WebSocketConnect extends EventEmitter {
 
     protected handleMessage(event: MessageEvent) {
         const data = JSON.parse(event.data);
-        if (data.ctype === 'response' && data.status > 400) {
-            this.ws?.close();
-            info(`>>> error message ${data}`);
-            return;
-        }
         switch (data.ctype) {
             case 'ping':
                 this.send("pong");
@@ -150,7 +151,7 @@ export class WebSocketConnect extends EventEmitter {
         }
     }
 
-    protected request<T , S>(data: Omit<PRequestProps<T>, 'sequence'> ): Promise<S> {
+    request<T , S>(data: Omit<PRequestProps<T>, 'sequence'> ): Promise<S> {
         return new Promise(async (resolve, reject) => {
             if (this.state !== State.CONNECTED) {
                 reject("websocket not connected");

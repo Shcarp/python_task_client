@@ -123,7 +123,7 @@ export class PResponse<T> {
 
 export interface PPushProps<T> {
     event: string;
-    status: Status;
+    status: 0 | 1 | 2;
     data: T;
     type?: Kind;
     sendTime?: number;
@@ -141,7 +141,7 @@ export class PPush<T> {
     private _ctype: Kind = 'push';
 
     private _event: string
-    private _status: Status
+    private _status: 0 | 1 | 2
     private _sendTime: number
     private _data: T
 

@@ -1,6 +1,6 @@
+import { userConn } from "@/app/service/wechat";
 import { Form, Input, Modal, message } from "antd";
 import React, { useImperativeHandle, useState } from "react";
-import { getUserWebSocketConn } from "@/app/connect";
 
 interface IProps {
     onOk?: () => void;
@@ -12,7 +12,7 @@ export interface IRef {
     close: () => void;
 }
 
-const conn = getUserWebSocketConn();
+
 
 // eslint-disable-next-line react/display-name
 export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
@@ -24,7 +24,7 @@ export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
         try {
             setLoading(true);
             const res = await form?.validateFields();
-            const success = await conn.addWxUser(res);
+            const success = await userConn.addWxUser(res);
             console.log(success);
             message.success("添加成功");
             setOpen(false);

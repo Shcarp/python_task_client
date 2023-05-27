@@ -1,4 +1,6 @@
-import { APP_BASEURL } from "@/app/config";
+import { APP_API_DEAFULT_PORT, APP_BASEURL } from "@/app/config";
+import { connect } from "@/app/service/connect";
+import store from "@/app/store";
 import { Button, Form, Input } from "antd";
 import Router from "next/router";
 
@@ -7,7 +9,7 @@ const Connect = () => {
     const handleOk = async () => {
         try {
             const res = await from?.validateFields();
-            localStorage.setItem(APP_BASEURL, JSON.stringify({ip: res.ip, port: res.port}));
+            await connect(res.ip, res.port);
             Router.push("/task");
         } catch (error) {
             console.log(error);
@@ -16,7 +18,9 @@ const Connect = () => {
 
     return (
         <div>
-            <Form form={from}>
+            <Form form={from} initialValues={{
+                port: APP_API_DEAFULT_PORT
+            }}>
                 <Form.Item name="ip" rules={[{ required: true }]}>
                     <Input placeholder="请输入IP"></Input>
                 </Form.Item>
