@@ -1,8 +1,4 @@
-import { APP_BASEURL } from "../../app/config";
 import { WebSocketConnect } from "./websocket";
-import store from "../store";
-
-
 
 export const connect = async (ip: string, port: number) => {
     return new Promise<WebSocketConnect>(async (resolve, reject) => {
@@ -12,6 +8,10 @@ export const connect = async (ip: string, port: number) => {
                 resolve(websocketConn as WebSocketConnect);
             })
             websocketConn.on("closed", () => {
+                websocketConn = null;
+                reject();
+            })
+            websocketConn.on("close", () => {
                 websocketConn = null;
                 reject();
             })

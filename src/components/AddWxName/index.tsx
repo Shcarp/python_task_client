@@ -25,7 +25,7 @@ export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
     const userConn = useMemo(() => {
         if (!open) return;
         if (!websocketConn) {
-            Router.push("/login");
+            Router.push("/networkerror");
         } else {
             return new UserWebSocketConnect(websocketConn);
         }

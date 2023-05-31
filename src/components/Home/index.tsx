@@ -100,6 +100,7 @@ export const Home = () => {
             taskConn.on("task-list/update", handle);
 
             taskConn.on("block_num", handleNum);
+            
             setTaskConn(taskConn);
             return () => {
                 taskConn.off("task-list/update", handle);

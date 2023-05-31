@@ -44,7 +44,8 @@ export class Request<T> {
 type WebsocketEvent = {
     ["push"]: (data: PPush<any>) => void;
     ["connected"]: () => void;
-    ["closed"]: () => void;
+    ["closed"]: () => void; 
+    ['close']: () => void;
 }
 export class WebSocketConnect extends EventEmitter {
 
@@ -108,7 +109,6 @@ export class WebSocketConnect extends EventEmitter {
                 this.errorHandler(new Error("server close"));
             };
             this.ws.onerror = (error) => {
-                console.log(error);
                 if (this.state === State.INIT || this.state === State.RECONNECTING || this.state === State.CONNECTING) {
                     reject("init websocket close");
                     this.emit("closed");
