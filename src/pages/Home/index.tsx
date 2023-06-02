@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import lottie from "lottie-web";
 import { useNavigate } from "react-router-dom";
 import { Card, Col, Row, message } from "antd";
+import { invoke } from '@tauri-apps/api'
 import styles from "./index.module.less"
 
 export enum TaskType {
@@ -52,11 +53,11 @@ export default function Index() {
         switch (type) {
             case TaskType.Local:
                 try {
-                    // localStorage.setItem(APPTYPE_NAME, TaskType.Local);
-                    // await connect("127.0.0.1", APP_API_DEAFULT_PORT);
-                    // Router.push("/task-home");
-                    // break;
-                    navigate("/task");
+                    const res = await invoke('plugin:connect|connect', {
+                        address: "ws://127.0.0.1:9673"
+                    })
+                    console.log(res)
+                    // navigate("/task");
                 } catch (error) {
                     message.error("连接失败");
                 }
