@@ -1,5 +1,6 @@
 pub mod command;
-
+mod client;
+mod plugin;
 use tauri::Wry;
 
 use command::generate_unique_message_id;
@@ -18,7 +19,8 @@ impl NApp {
             LogTarget::Stdout,
             LogTarget::Webview,
         ]).build())
-        .plugin(tauri_plugin_store::Builder::default().build());
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(plugin::connect::Builder::default().build());
         NApp { builder }
     }
 
