@@ -59,11 +59,9 @@ export default function Index() {
             case TaskType.Local:
                 try {
                     await client.connect()
-                    console.log(client)
-                    
                     setTimeout(() => {
                         console.log(num)
-                        client.send("URL", num++)
+                        client.send("test", num++)
                     }, 2000)
 
                 } catch (error) {

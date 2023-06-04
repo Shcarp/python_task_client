@@ -81,21 +81,17 @@ async fn send<'a, R: Runtime>(
     win: Window<R>,
     c_manage: State<'_, ClientState<R>>,
 ) -> Result<LResponse, LResponse> {
-    println!("send: {}", id);
 
     let client = c_manage.client_manage.lock().unwrap().get_client(id.to_string());
 
     match client {
         Some(client) => {
-            println!("send client error: {:?}", client);
             let body = Body::from_serialize(data);
-            println!("send client error: {:?}", body);
             let res = client.request(url, body).await;
 
             Ok(LResponse::default().data(res))
         }
         None => {
-            println!("send client error");
             Err(LResponse::default()
                 .code(1)
                 .data("not found client".to_string()))
@@ -128,7 +124,10 @@ impl Builder {
             .on_event(|app_handle, event| {
                 if let RunEvent::Exit = event {
                     let manage = app_handle.state::<ClientState<R>>();
-                    let manage = manage.client_manage.lock().unwrap().close_all();
+                    let manage =  tauri::async_runtime::block_on(async {
+                       manage.client_manage.lock().unwrap().close_all().await
+                    });
+                    
                     if let Err(err) = manage {
                         println!("Failed to close client: {}", err);
                     }
