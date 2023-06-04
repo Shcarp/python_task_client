@@ -1,3 +1,5 @@
+use message::Body;
+
 pub mod message;
 
 pub enum MessageType {
@@ -26,6 +28,15 @@ impl MessageType {
             b'3' => MessageType::RESPONSE,
             _ => MessageType::OTHER,
         }
+    }
+}
+
+impl serde::Serialize for Body {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer
+    {
+        self.value.serialize(serializer)
     }
 }
 

@@ -4,11 +4,14 @@ import { useNavigate } from "react-router-dom";
 import { Card, Col, Row, message } from "antd";
 import { invoke } from '@tauri-apps/api'
 import styles from "./index.module.less"
+import { WebsocketClient } from "../../utils/client/websocket";
 
 export enum TaskType {
     Local = "local",
     Remote = "remote",
 }
+
+const client = new WebsocketClient()
 
 export default function Index() {
     const navigate = useNavigate();
@@ -49,15 +52,20 @@ export default function Index() {
         };
     }, []);
 
+    let num = 0
+
     const handleClick = async (type: TaskType) => {
         switch (type) {
             case TaskType.Local:
                 try {
-                    const res = await invoke('plugin:connect|connect', {
-                        address: "ws://127.0.0.1:9673"
-                    })
-                    console.log(res)
-                    // navigate("/task");
+                    await client.connect()
+                    console.log(client)
+                    
+                    setTimeout(() => {
+                        console.log(num)
+                        client.send("URL", num++)
+                    }, 2000)
+
                 } catch (error) {
                     message.error("连接失败");
                 }

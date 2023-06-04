@@ -1,6 +1,7 @@
 pub mod command;
 mod client;
 mod plugin;
+mod promise;
 use tauri::Wry;
 
 use command::generate_unique_message_id;
