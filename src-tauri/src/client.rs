@@ -1,12 +1,13 @@
 use std::{
     fmt::Debug,
     net::TcpStream,
-    sync::{Arc, Mutex, RwLock},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, RwLock},
+    time::{SystemTime, UNIX_EPOCH}, mem,
 };
 
+use log::{info, error};
 use serde_json::Value;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, MutexGuard, mpsc::{Sender}};
 
 use anyhow::Result;
 use dashmap::DashMap;
@@ -21,7 +22,7 @@ use thiserror::Error;
 use uuid::Uuid;
 use websocket::{client::sync::Client, ClientBuilder};
 
-use crate::promise::Promise;
+use crate::promise::{Promise, PromiseResult};
 
 #[derive(Error, Debug, serde::Serialize)]
 pub enum ConnError {
@@ -29,8 +30,6 @@ pub enum ConnError {
     ConnectError(String),
     #[error("send error: {0}")]
     SendError(String),
-    #[error("recv error")]
-    RecvError,
     #[error("lock error: {0}")]
     LockError(String),
 }
@@ -55,8 +54,8 @@ macro_rules! handle_message {
                     }
                 }
             }
-            Err(_) => {
-                println!("ERROR")
+            Err(error) => {
+                error!("parse data error: {}", error);
             }
         }
     };
@@ -166,14 +165,11 @@ impl<R: Runtime> ClientManage<R> {
                     let client = Arc::new(WClient::new(win, address.to_string(), conn.clone()));
                     let client_id = client.client_id.clone();
 
-                    let clients = self.clients
+                    self.clients
                         .write()
                         .map_err(|error| ConnError::LockError(error.to_string()))?
                         .push(client);
                     self.conn_pool.insert(address.to_string(), conn);
-
-                    // 释放锁
-                    drop(clients);
 
                     // 启动读取线程
                     let clients = self.clients.clone();
@@ -181,7 +177,7 @@ impl<R: Runtime> ClientManage<R> {
                     let address = address.to_string();
 
                     tokio::spawn(
-                        async move { println!("{}", 11); read_loop(address, conn_clone, clients, conns).await },
+                        async move { read_loop(address, conn_clone, clients, conns).await },
                     );
 
                     Ok(client_id)
@@ -235,7 +231,7 @@ pub struct WClient<R: Runtime> {
     pub window: Window<R>,
     pub address: String,
     pub conn: Arc<AsyncMutex<Client<TcpStream>>>,
-    pub sequences: DashMap<String, Arc<AsyncMutex<Promise<Body>>>>,
+    pub sequences: DashMap<String, Sender<PromiseResult<Body>>>,
 }
 
 impl<R: Runtime> WClient<R> {
@@ -255,7 +251,7 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn request(&self, url: String, data: Body) -> Body {
-        let promise = Arc::new(AsyncMutex::new(Promise::<Body>::new()));
+        let (promise, sender) = Promise::<Body>::new();
 
         let sequence = Uuid::new_v4().to_string();
 
@@ -273,22 +269,55 @@ impl<R: Runtime> WClient<R> {
         // 在request 序列化数据前加上请求标识
         match request.write_to_bytes() {
             Ok(mut data) => {
-                println!("request: {:?}", data);
                 data.insert(0, MessageType::REQUEST.into());
-                println!("request: {:?}", data);
-
-                self.send(&data).await;
-
-                self.sequences.insert(sequence.clone(), promise.clone());
-
-                let mut res = promise.lock().await; 
-                if let Some(body) = res.value() {
-                    body
-                } else {
-                    Body::default()
+                match self.send(&data).await {
+                    Ok(_) => {
+                         match self.window.emit(&uniform_event_name("send"), "success") {
+                            Ok(_) => {},
+                            Err(_) => {
+                                error!("emit event error");
+                            },
+                        };
+                    }
+                    Err(error) => {
+                        error!("request error: {:?}", error);
+                        sender.send(PromiseResult::Rejected).await.unwrap();
+                        return Body::default();
+                    }
                 }
+
+                self.sequences.insert(sequence.clone(), sender);
+
+                promise.await
+
             }
-            Err(_) => Body::default(),
+            Err(_) => proto::message::Body::from_serialize(Value::String("data error".to_string())),
+        }
+    }
+
+    pub async fn handle_response(&self, response: Response) {
+        let sequence = response.sequence.clone();
+        if let Some(sender) = self.sequences.remove(&sequence) {
+            let sender = sender.1;
+            match response.status {
+                Some(status) => {
+                    if status != MessageState::OK.into() {
+                        Promise::reject(sender).await;
+                        return;
+                    }
+                    match response.data.0 {
+                        Some(data) => {
+                            Promise::resolve(sender, *data).await;
+                        }
+                        _ => {
+                            Promise::resolve(sender, Body::default()).await;
+                        }
+                    }
+                }
+                None => {
+                    Promise::reject(sender).await;
+                },
+            }
         }
     }
 
@@ -300,40 +329,18 @@ impl<R: Runtime> WClient<R> {
         println!("request: {:?}", request);
     }
 
-    pub async fn handle_response(&self, response: Response) {
-        println!("response: {:?}", response);
-        let sequence = response.sequence.clone();
-        if let Some(promise) = self.sequences.remove(&sequence) {
-            let promise = promise.1;
+    
 
-            match response.status {
-                Some(status) => {
-                    if status != MessageState::OK.into() {
-                        promise.lock().await.reject();
-                        return;
-                    }
-                    match response.data.0 {
-                        Some(data) => {
-                            promise.lock().await.resolve(*data);
-                        }
-                        _ => {
-                            promise.lock().await.resolve(Body::default());
-                        }
-                    }
-                }
-                None => todo!(),
-            }
-        }
-    }
 
     pub async fn send(&self, data: &[u8]) -> Result<()> {
         let mut conn = self.conn.lock().await;
 
         match conn.send_message(&websocket::message::Message::binary(data)) {
             Ok(_) => {
-                println!("send success")
+                // println!("send success")
             }
             Err(error) => {
+                drop(conn);
                 match reconnect(self.address.clone(), self.conn.clone()).await {
                     Ok(_) => {
                         conn = self.conn.lock().await;
@@ -348,18 +355,6 @@ impl<R: Runtime> WClient<R> {
             }
         }
         Ok(())
-    }
-}
-
-impl<R: Runtime> Drop for WClient<R> {
-    fn drop(&mut self) {
-        self.address = "".to_string();
-        self.window
-            .emit(&uniform_event_name("close"), "close")
-            .unwrap();
-        drop(&self.window);
-        drop(&self.conn);
-        drop(&self.sequences);
     }
 }
 
@@ -381,7 +376,8 @@ async fn read_loop<R: Runtime>(
     conns: Arc<DashMap<String, Arc<AsyncMutex<Client<TcpStream>>>>>,
 ) {
     loop {
-        let mut mconn = conn.lock().await;
+        let mconn = conn.clone();
+        let mut mconn = mconn.lock().await;
         let close = || {
             // 从clients中删除 address 对应的client
             clients
@@ -420,7 +416,7 @@ async fn read_loop<R: Runtime>(
                         };
                     }
                     websocket::message::OwnedMessage::Close(_) => {
-                        println!("recv: close");
+                        info!("recv: close");
                         close();
                         mconn.shutdown().unwrap();
                     }
@@ -432,18 +428,20 @@ async fn read_loop<R: Runtime>(
                     }
                     websocket::message::OwnedMessage::Pong(_) => {
                         println!("recv: pong");
-                        // conn.send_message(&websocket::message::Message::pong(payload)).unwrap();
                     }
                 }
             }
-            Err(_) => match reconnect(address.clone(), conn.clone()).await {
-                Ok(_) => continue,
-                Err(_) => {
-                    close();
-                    conns.remove(&address);
-                    break;
+            Err(_) => {
+                drop(mconn);
+                match reconnect(address.clone(), conn.clone()).await {
+                    Ok(_) => continue,
+                    Err(_) => {
+                        close();
+                        conns.remove(&address);
+                        break;
+                    }
                 }
-            },
+            } 
         }
     }
 }
@@ -458,12 +456,15 @@ async fn reconnect(address: String, conn: Arc<AsyncMutex<Client<TcpStream>>>) ->
             .connect_insecure();
         match res {
             Ok(new_conn) => {
-                let mut conn = conn.lock().await;
-                *conn = new_conn;
+                info!("connect success {:#?}", new_conn.local_addr());
+                let mut guard: MutexGuard<_> = conn.lock().await; 
+                let old = mem::replace(&mut *guard, new_conn);
+                info!("end reconnect {:#?}", old.local_addr());
+                drop(old);
                 return Ok(());
             }
             Err(error) => {
-                println!("reconnect error: {}", error);
+                error!("reconnect error: {}", error);
                 count += 1;
                 if count > 10 {
                     return Err(());

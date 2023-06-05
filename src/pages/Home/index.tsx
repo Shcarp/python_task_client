@@ -2,8 +2,8 @@ import React, { useEffect, useRef } from "react";
 import lottie from "lottie-web";
 import { useNavigate } from "react-router-dom";
 import { Card, Col, Row, message } from "antd";
-import { invoke } from '@tauri-apps/api'
-import styles from "./index.module.less"
+import { invoke } from "@tauri-apps/api";
+import styles from "./index.module.less";
 import { WebsocketClient } from "../../utils/client/websocket";
 
 export enum TaskType {
@@ -11,7 +11,7 @@ export enum TaskType {
     Remote = "remote",
 }
 
-const client = new WebsocketClient()
+const client = new WebsocketClient();
 
 export default function Index() {
     const navigate = useNavigate();
@@ -52,18 +52,20 @@ export default function Index() {
         };
     }, []);
 
-    let num = 0
+    let num = 0;
 
     const handleClick = async (type: TaskType) => {
         switch (type) {
             case TaskType.Local:
                 try {
-                    await client.connect()
-                    setTimeout(() => {
-                        console.log(num)
-                        client.send("test", num++)
-                    }, 2000)
-
+                    console.time("connect");
+                    await client.connect();
+                    console.timeEnd("connect");
+                    console.log(num);
+                    console.time("send");
+                    const res = await client.send("test", num++);
+                    console.timeEnd("send");
+                    console.log(res);
                 } catch (error) {
                     message.error("连接失败");
                 }
@@ -73,12 +75,12 @@ export default function Index() {
             default:
                 break;
         }
-    }
+    };
 
     return (
         <Row className={styles.row} justify="space-around">
             <Col className={styles.card} onClick={() => handleClick(TaskType.Local)}>
-                <Card  hoverable cover={<div className={styles.local} ref={localRef}></div>}>
+                <Card hoverable cover={<div className={styles.local} ref={localRef}></div>}>
                     <Card.Meta title="本地" />
                 </Card>
             </Col>

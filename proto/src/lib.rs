@@ -1,4 +1,6 @@
-use message::Body;
+use message::{Body, DataType};
+use serde_json::Value;
+use protobuf::EnumOrUnknown;
 
 pub mod message;
 
@@ -37,6 +39,33 @@ impl serde::Serialize for Body {
         S: serde::ser::Serializer
     {
         self.value.serialize(serializer)
+    }
+}
+
+impl DataType {
+    pub fn from_i32(i: i32) -> DataType {
+        match i {
+            2 => DataType::Bool,
+            0 => DataType::String,
+            1 => DataType::Number,
+            3 => DataType::Array,
+            4 => DataType::Object,
+            5 => DataType::Null,
+            _ => DataType::Null,
+        }
+    }
+}
+
+impl Body {
+    pub fn json_value(&self) -> Value {
+        match self.value.parse::<Value>() {
+            Ok(value) => {
+                value
+            },
+            Err(_) => {
+                Value::Null
+            },
+        } 
     }
 }
 

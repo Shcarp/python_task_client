@@ -1,8 +1,8 @@
-use std::future::Future;
+use std::fmt::Debug;
+use std::future::{Future};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::sync::mpsc::{self, Sender, Receiver};
+use tokio::sync::mpsc::{self, Sender, Receiver};
 
 #[derive(Debug)]
 pub enum PromiseResult<T> {
@@ -10,9 +10,11 @@ pub enum PromiseResult<T> {
     Rejected,
 }
 
+unsafe impl<T: Send> Send for PromiseResult<T> {}
+unsafe impl<T: Sync> Sync for PromiseResult<T> {}
+
 #[derive(Debug)]
 pub struct Promise<T: Send + Sync> {
-    sender: Sender<PromiseResult<T>>,
     receiver: Receiver<PromiseResult<T>>,
     state: Option<T>,
 }
@@ -22,22 +24,18 @@ unsafe impl<T: Send + Sync> Sync for Promise<T> {}
 impl<T: Send + Sync> Unpin for Promise<T>{}
 
 
-impl<T: Send + Sync > Promise<T> {
-    pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel();
-        Promise { sender, receiver, state: None }
+impl<T: Send + Sync + Debug > Promise<T> {
+    pub fn new() -> (Self, Sender<PromiseResult<T>>) {
+        let (sender, receiver) = mpsc::channel(1024);
+        (Promise { receiver, state: None }, sender)
     }
         
-    pub fn resolve(&self, value: T) {
-        self.sender.send(PromiseResult::Resolved(value)).unwrap();
+    pub async fn resolve(sender: Sender<PromiseResult<T>>, value: T) {
+        sender.send(PromiseResult::Resolved(value)).await.unwrap();
     }
 
-    pub fn reject(&self) {
-        self.sender.send(PromiseResult::Rejected).unwrap();
-    }
-
-    pub fn value(&mut self) -> Option<T> {
-        self.state.take()
+    pub async fn reject(sender: Sender<PromiseResult<T>>) {
+        sender.send(PromiseResult::Rejected).await.unwrap();
     }
 }
 
@@ -61,4 +59,3 @@ impl<T: Send + Sync + Clone> Future for Promise<T> {
         }
     }
 }
-

@@ -6,28 +6,19 @@ use tauri::{plugin::TauriPlugin, Manager, RunEvent, Runtime, State, Window};
 use serde_json::Value;
 use crate::client::{ClientManage, MessageBody};
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, Default)]
 struct LResponse {
     code: u32,
-    data: String,
-}
-
-impl Default for LResponse {
-    fn default() -> Self {
-        Self {
-            code: 0,
-            data: "".to_string(),
-        }
-    }
+    data: Value,
 }
 
 impl LResponse {
-    fn new(code: u32, data: String) -> Self {
+    fn new(code: u32, data: Value) -> Self {
         Self { code, data }
     }
 
-    fn data<T: Serialize>(mut self, data: T) -> Self {
-        self.data = serde_json::to_string(&data).unwrap();
+    fn data(mut self, data: Value) -> Self {
+        self.data = data;
         self
     }
 
@@ -50,8 +41,8 @@ async fn connect<R: Runtime>(
         .unwrap()
         .add_client(win, &address);
     match res {
-        Ok(id) => Ok(LResponse::default().data(id)),
-        Err(err) => Err(LResponse::default().code(1).data(err.to_string())),
+        Ok(id) => Ok(LResponse::default().data(Value::String(id))),
+        Err(err) => Err(LResponse::default().code(1).data(Value::String(err.to_string()))),
     }
 }
 
@@ -69,7 +60,7 @@ async fn disconnect<R: Runtime>(
         .remove_client(&win, id);
     match res {
         Ok(_) => Ok(LResponse::default()),
-        Err(err) => Err(LResponse::default().code(1).data(err.to_string())),
+        Err(err) => Err(LResponse::default().code(1).data(Value::String(err.to_string()))),
     }
 }
 
@@ -83,18 +74,16 @@ async fn send<'a, R: Runtime>(
 ) -> Result<LResponse, LResponse> {
 
     let client = c_manage.client_manage.lock().unwrap().get_client(id.to_string());
-
     match client {
         Some(client) => {
             let body = Body::from_serialize(data);
             let res = client.request(url, body).await;
-
-            Ok(LResponse::default().data(res))
+            Ok(LResponse::default().data(res.json_value()))
         }
         None => {
             Err(LResponse::default()
                 .code(1)
-                .data("not found client".to_string()))
+                .data(Value::String("not found client".to_string())))
         }
     }
 }
