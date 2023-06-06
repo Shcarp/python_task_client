@@ -4,12 +4,10 @@ use std::{
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH}, mem,
 };
-
 use log::{info, error};
 use serde_json::Value;
-use tokio::sync::{Mutex as AsyncMutex, MutexGuard, mpsc::{Sender}};
-
-use anyhow::Result;
+use tokio::sync::{Mutex as AsyncMutex, mpsc::{Sender}};
+use anyhow::{Result};
 use dashmap::DashMap;
 use proto::{
     message::{Body, DataType, Push, Request, Response, Status as MessageState},
@@ -20,7 +18,7 @@ use std::any::Any;
 use tauri::{Runtime, Window};
 use thiserror::Error;
 use uuid::Uuid;
-use websocket::{client::sync::Client, ClientBuilder};
+use websocket::{ClientBuilder, sync::{Reader, Writer}};
 
 use crate::promise::{Promise, PromiseResult};
 
@@ -123,23 +121,30 @@ impl MessageHandler for Response {
     }
 }
 
+#[derive(Clone)]
+pub struct Conn {
+    pub address: String,
+    pub reader: Arc<AsyncMutex<Reader<TcpStream>>>,
+    pub writer: Arc<AsyncMutex<Writer<TcpStream>>>,
+}
+
 #[derive(Default)]
 pub struct ClientManage<R: Runtime> {
     clients: Arc<RwLock<Vec<Arc<WClient<R>>>>>,
-    conn_pool: Arc<DashMap<String, Arc<AsyncMutex<Client<TcpStream>>>>>,
+    conns: Arc<DashMap<String, Conn>>,
 }
 
 impl<R: Runtime> ClientManage<R> {
     pub fn new() -> ClientManage<R> {
         ClientManage {
             clients: Arc::new(RwLock::new(vec![])),
-            conn_pool: Arc::new(DashMap::new()),
+            conns: Arc::new(DashMap::new()),
         }
     }
 
     pub fn add_client(&mut self, win: Window<R>, address: &str) -> Result<String> {
         // 判断address是否已经存在, 如果已存在则用存在的conn
-        if let Some(conn) = self.conn_pool.get(address) {
+        if let Some(conn) = self.conns.get(address) {
             let client = Arc::new(WClient::new(win, address.to_string(), conn.clone()));
             let client_id = client.client_id.clone();
             self.clients
@@ -151,29 +156,39 @@ impl<R: Runtime> ClientManage<R> {
             let res = ClientBuilder::new(address)?.connect_insecure();
             match res {
                 Ok(conn) => {
-                    let conn = Arc::new(AsyncMutex::new(conn));
-                    let conn_clone = conn.clone();
-                    let client = Arc::new(WClient::new(win, address.to_string(), conn.clone()));
-                    let client_id = client.client_id.clone();
+                    match conn.split() {
+                        Ok((reader, writer)) => {
+                            let conn = Conn {
+                                address: address.to_string(),
+                                reader: Arc::new(AsyncMutex::new(reader)),
+                                writer: Arc::new(AsyncMutex::new(writer)),
+                            };
+                            let client = Arc::new(WClient::new(win, address.to_string(), conn.clone()));
+                            let client_id = client.client_id.clone();
 
-                    self.clients
-                        .write()
-                        .map_err(|error| ConnError::LockError(error.to_string()))?
-                        .push(client);
-                    self.conn_pool.insert(address.to_string(), conn);
+                            self.clients
+                                .write()
+                                .map_err(|error| ConnError::LockError(error.to_string()))?
+                                .push(client);
 
-                    // 启动读取线程
-                    let clients = self.clients.clone();
-                    let conns = self.conn_pool.clone();
-                    let address = address.to_string();
+                            self.conns.insert(address.to_string(), conn.clone());
 
-                    tokio::spawn(
-                        async move { 
-                            read_loop(address, conn_clone, clients, conns).await 
+                            // 启动读取线程
+                            let clients = self.clients.clone();
+                            let conns = self.conns.clone();
+                            let address = address.to_string();
+                            tokio::spawn(
+                                async move { 
+                                    read_loop(address, conn, clients, conns).await 
+                                }
+                            );
+                            Ok(client_id)
                         },
-                    );
-
-                    Ok(client_id)
+                        Err(error) => {
+                            win.emit(&uniform_event_name("error"), Some(&error.to_string()))?;
+                            Err(ConnError::ConnectError(error.to_string()).into())
+                        },
+                    }
                 }
                 Err(error) => {
                     win.emit(&uniform_event_name("error"), Some(&error.to_string()))?;
@@ -210,9 +225,10 @@ impl<R: Runtime> ClientManage<R> {
             .iter()
         {
             client.window.emit(&uniform_event_name("close"), "close")?;
-            let conn = client.conn.lock().await;
-            //
-            conn.shutdown()?;
+            let reader = client.conn.reader.lock().await;
+            let writer = client.conn.writer.lock().await;
+            reader.shutdown()?;
+            writer.shutdown()?;
         }
         self.clients = Arc::new(RwLock::new(vec![]));
         Ok(())
@@ -223,7 +239,7 @@ pub struct WClient<R: Runtime> {
     pub client_id: String,
     pub window: Window<R>,
     pub address: String,
-    pub conn: Arc<AsyncMutex<Client<TcpStream>>>,
+    pub conn: Conn,
     pub sequences: DashMap<String, Sender<PromiseResult<Body>>>,
 }
 
@@ -231,7 +247,7 @@ impl<R: Runtime> WClient<R> {
     pub fn new(
         win: Window<R>,
         address: String,
-        conn: Arc<AsyncMutex<Client<TcpStream>>>,
+        conn: Conn,
     ) -> WClient<R> {
         let client = WClient {
             client_id: Uuid::new_v4().to_string(),
@@ -245,7 +261,6 @@ impl<R: Runtime> WClient<R> {
 
     pub async fn request(&self, url: String, data: Body) -> Body {
         let (promise, sender) = Promise::<Body>::new();
-
         let sequence = Uuid::new_v4().to_string();
 
         let mut request = Request::new();
@@ -283,9 +298,7 @@ impl<R: Runtime> WClient<R> {
                 self.sequences.insert(sequence.clone(), sender);
 
                 let res = promise.await;
-                println!("res");
                 res
-
             }
             Err(_) => proto::message::Body::from_serialize(Value::String("data error".to_string())),
         }
@@ -327,17 +340,17 @@ impl<R: Runtime> WClient<R> {
 
     pub async fn send(&self, data: &[u8]) -> Result<()> {
         println!("send");
-        let mut conn = self.conn.lock().await;
-        match conn.send_message(&websocket::message::Message::binary(data)) {
+        let mut writer = self.conn.writer.lock().await;
+        match writer.send_message(&websocket::message::Message::binary(data)) {
             Ok(_) => {
                 // println!("send success")
             }
             Err(error) => {
-                drop(conn);
+                drop(writer);
                 match reconnect(self.address.clone(), self.conn.clone()).await {
                     Ok(_) => {
-                        conn = self.conn.lock().await;
-                        conn.send_message(&websocket::message::Message::binary(data))?;
+                        let mut writer = self.conn.writer.lock().await;
+                        writer.send_message(&websocket::message::Message::binary(data))?;
                     }
                     Err(_) => {
                         let err = ConnError::SendError(error.to_string());
@@ -364,13 +377,12 @@ impl<R: Runtime> Debug for WClient<R> {
 
 async fn read_loop<R: Runtime>(
     address: String,
-    conn: Arc<AsyncMutex<Client<TcpStream>>>,
+    conn: Conn,
     clients: Arc<RwLock<Vec<Arc<WClient<R>>>>>,
-    conns: Arc<DashMap<String, Arc<AsyncMutex<Client<TcpStream>>>>>,
+    conns:  Arc<DashMap<String, Conn>>,
 ) {
     loop {
-        let mconn = conn.clone();
-        let mut mconn = mconn.lock().await;
+        let mut reader = conn.reader.lock().await;
         let close = || {
             // 从clients中删除 address 对应的client
             clients
@@ -379,7 +391,7 @@ async fn read_loop<R: Runtime>(
                 .retain(|client| client.address != address);
         };
 
-        match mconn.recv_message() {
+        match reader.recv_message() {
             Ok(response) => {
                 match response {
                     websocket::message::OwnedMessage::Text(text) => {
@@ -413,13 +425,12 @@ async fn read_loop<R: Runtime>(
                     websocket::message::OwnedMessage::Close(_) => {
                         info!("recv: close");
                         close();
-                        mconn.shutdown().unwrap();
+                        reader.shutdown().unwrap();
                     }
                     websocket::message::OwnedMessage::Ping(payload) => {
                         println!("recv: ping");
-                        mconn
-                            .send_message(&websocket::message::Message::pong(payload))
-                            .unwrap();
+                        let mut writer = conn.writer.lock().await;
+                        writer.send_message(&websocket::message::Message::pong(payload)).unwrap();
                     }
                     websocket::message::OwnedMessage::Pong(_) => {
                         println!("recv: pong");
@@ -428,6 +439,7 @@ async fn read_loop<R: Runtime>(
             }
 
             Err(_) => {
+                drop(reader);
                 match reconnect(address.clone(), conn.clone()).await {
                     Ok(_) => continue,
                     Err(_) => {
@@ -438,11 +450,11 @@ async fn read_loop<R: Runtime>(
                 }
             } 
         }
-        drop(mconn);
+        drop(reader)
     }
 }
 
-async fn reconnect(address: String, conn: Arc<AsyncMutex<Client<TcpStream>>>) -> Result<(), ()> {
+async fn reconnect(address: String, conn: Conn) -> Result<(), ()> {
     // 重试10次
     let mut count = 0;
     loop {
@@ -452,12 +464,22 @@ async fn reconnect(address: String, conn: Arc<AsyncMutex<Client<TcpStream>>>) ->
             .connect_insecure();
         match res {
             Ok(new_conn) => {
-                info!("connect success {:#?}", new_conn.local_addr());
-                let mut guard: MutexGuard<_> = conn.lock().await; 
-                let old = mem::replace(&mut *guard, new_conn);
-                info!("end reconnect {:#?}", old.local_addr());
-                drop(old);
-                return Ok(());
+                info!("reconnect success {:#?}", new_conn.local_addr());
+                match new_conn.split() {
+                    Ok((reader, writer)) => {
+                        let mut reader_guard = conn.reader.lock().await;
+                        let mut writer_guard = conn.writer.lock().await;
+                        let old_reader = mem::replace(&mut *reader_guard, reader);
+                        let old_writer = mem::replace(&mut *writer_guard, writer);
+                        info!("reconnect success");
+                        drop(old_reader);
+                        drop(old_writer);
+                        return Ok(());
+                    },
+                    Err(_) =>{
+                        return Err(());
+                    },
+                }
             }
             Err(error) => {
                 error!("reconnect error: {}", error);
