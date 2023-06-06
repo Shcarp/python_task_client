@@ -78,6 +78,7 @@ async fn send<'a, R: Runtime>(
         Some(client) => {
             let body = Body::from_serialize(data);
             let res = client.request(url, body).await;
+            println!("send: {:?}", res);
             Ok(LResponse::default().data(res.json_value()))
         }
         None => {

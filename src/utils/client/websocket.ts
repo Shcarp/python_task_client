@@ -1,21 +1,72 @@
+/**
+ * @file websocket client
+ * @description websocket client
+ * @module utils/client/websocket
+ * @packageDocumentation
+ * 随便写写, 有空再整理
+ * @internal
+ */
+
+import EventEmitter from "events";
 import { invoke } from "@tauri-apps/api";
 import { Client, LocalResponse, MessageType, farmatEventName } from "./base";
 import { appWindow } from "@tauri-apps/api/window";
-// import EventEmitter from "events";
+import { Event } from "@tauri-apps/api/event";
+import { Events } from "..";
 
-export class WebsocketClient implements Client {
+enum PushStatus {
+    SUCCESS = 0,
+    ERROR = 1,
+    WARN = 2,
+}
+
+type EeventPayload<T> = {
+    event: string
+    payload: T
+    status: PushStatus
+}
+
+export enum State {
+    INIT,
+    CONNECTING,
+    CONNECTED,
+    RECONNECTING,
+    CLOSEING,
+    CLOSED,
+}
+
+type WebsocketEvent = {
+    ['block_num']: (data: number) => void;
+    ['connect']: () => void;
+}
+
+export class WebsocketClient extends EventEmitter implements Client {
+    
+    on: Events<WebsocketEvent>["on"] = super.on;
+    emit: Events<WebsocketEvent>["emit"] = super.emit;
+
+    client_id: string | undefined
+    state: State = State.INIT
 
     constructor() {
-        // super()
+        super()
         // 监听插件消息
+    }
+    
+    private start() {
+        if (!this.client_id && this.state !== State.CONNECTED) {
+            return
+        }
 
-        // appWindow
         appWindow.listen(farmatEventName("send_success"), (message) => {
             console.log("send_success", message)
         })
+
+        appWindow.listen(farmatEventName("push"), (message: Event<EeventPayload<any>>) => {
+            console.log("push", message)
+            this.emit(message.payload?.event, message.payload)
+        })
     }
-    
-    client_id: string | undefined
 
     async connect(address = "ws://127.0.0.1:9673") {
         if(this.client_id) {
@@ -27,7 +78,12 @@ export class WebsocketClient implements Client {
 
         if (res.code === 0) {
             this.client_id = res.data
+            this.state = State.CONNECTED
+            this.start()
         }
+
+        this.emit("connect")
+
     }
 
     async disconnect() {
@@ -39,6 +95,9 @@ export class WebsocketClient implements Client {
     }
 
     send<T>(url: string, data: MessageType): Promise<T> {
+        if (this.state !== State.CONNECTED) {
+            return Promise.reject("Client not connected")
+        }
         return new Promise<T>(async (resolve, reject) => {
             if (this.client_id) {
                 const res: LocalResponse<T> = await invoke('plugin:connect|send', {

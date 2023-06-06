@@ -1,4 +1,5 @@
-use message::{Body, DataType};
+use message::{Body, DataType, Push};
+use serde::ser::SerializeStruct;
 use serde_json::Value;
 use protobuf::EnumOrUnknown;
 
@@ -30,6 +31,19 @@ impl MessageType {
             b'3' => MessageType::RESPONSE,
             _ => MessageType::OTHER,
         }
+    }
+}
+
+impl serde::Serialize for Push {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer
+    {
+        let mut state = serializer.serialize_struct("Push", 3)?;
+        state.serialize_field("event", &self.event)?;
+        state.serialize_field("status", &self.status.unwrap().value())?;
+        state.serialize_field("data", &self.data.json_value())?;
+        state.end()
     }
 }
 

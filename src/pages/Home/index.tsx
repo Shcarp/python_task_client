@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from "react";
 import lottie from "lottie-web";
 import { useNavigate } from "react-router-dom";
 import { Card, Col, Row, message } from "antd";
-import { invoke } from "@tauri-apps/api";
 import styles from "./index.module.less";
 import { WebsocketClient } from "../../utils/client/websocket";
 
@@ -58,17 +57,15 @@ export default function Index() {
         switch (type) {
             case TaskType.Local:
                 try {
-                    console.time("connect");
                     await client.connect();
-                    console.timeEnd("connect");
-                    console.log(num);
-                    console.time("send");
-                    const res = await client.send("test", num++);
-                    console.timeEnd("send");
+                    const res = await client.send("/task/list", {});
                     console.log(res);
+                    client.on("block_num", (data) => {
+                        console.log("block_num", data);
+                    })
                 } catch (error) {
                     message.error("连接失败");
-                }
+                } 
                 break;
             case TaskType.Remote:
                 navigate("/connect");

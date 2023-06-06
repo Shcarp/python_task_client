@@ -45,7 +45,6 @@ impl<T: Send + Sync + Clone> Future for Promise<T> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.receiver.try_recv() {
             Ok(PromiseResult::Resolved(value)) => {
-                println!("Promise::poll: Ok");
                 self.state = Some(value.clone());
                 Poll::Ready(value)
             },

@@ -16,6 +16,7 @@
     "dayjs": "^1.11.7",
     "eslint": "8.41.0",
     "eslint-config-next": "13.4.3",
+    "events": "^3.3.0",
     "lodash": "^4.17.21",
     "lottie-web": "^5.11.0",
     "rc-virtual-list": "^3.5.2",

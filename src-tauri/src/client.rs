@@ -131,6 +131,7 @@ pub struct Conn {
 #[derive(Default)]
 pub struct ClientManage<R: Runtime> {
     clients: Arc<RwLock<Vec<Arc<WClient<R>>>>>,
+    w_c: DashMap<String, Arc<WClient<R>>>,
     conns: Arc<DashMap<String, Conn>>,
 }
 
@@ -139,12 +140,17 @@ impl<R: Runtime> ClientManage<R> {
         ClientManage {
             clients: Arc::new(RwLock::new(vec![])),
             conns: Arc::new(DashMap::new()),
+            w_c: DashMap::new(),
         }
     }
 
     pub fn add_client(&mut self, win: Window<R>, address: &str) -> Result<String> {
         // 判断address是否已经存在, 如果已存在则用存在的conn
         if let Some(conn) = self.conns.get(address) {
+            // 如果同一个窗口对应的address已经存在, 则不再添加
+            if let Some(client) = self.w_c.get(win.label()) {
+                return Ok(client.client_id.clone());
+            }
             let client = Arc::new(WClient::new(win, address.to_string(), conn.clone()));
             let client_id = client.client_id.clone();
             self.clients
@@ -152,6 +158,7 @@ impl<R: Runtime> ClientManage<R> {
                 .map_err(|error| ConnError::LockError(error.to_string()))?
                 .push(client);
             Ok(client_id)
+
         } else {
             let res = ClientBuilder::new(address)?.connect_insecure();
             match res {
@@ -331,7 +338,14 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn handle_push(&self, push: Push) {
-        println!("push");
+        match self.window.emit(&uniform_event_name("push"), &push) {
+            Ok(_) => {
+                info!("emit push success")
+            }
+            Err(_) => {
+                error!("emit push error")
+            },
+        }
     }
 
     pub async fn handle_request(&self, request: Request) {
@@ -410,11 +424,9 @@ async fn read_loop<R: Runtime>(
                                 handle_message!(payload, index, Push, clients, address);
                             }
                             MessageType::REQUEST => {
-                                println!("recv: request");
                                 handle_message!(payload, index, Request, clients, address);
                             }
                             MessageType::RESPONSE => {
-                                println!("recv: response");
                                 handle_message!(payload, index, Response, clients, address);
                             }
                             MessageType::OTHER => {
