@@ -61,6 +61,24 @@ macro_rules! handle_message {
     };
 }
 
+macro_rules! distribute {
+    ($client:expr, $data:expr, $type:ident, $handle:ident) => {
+        match $data.downcast::<$type>() {
+            Ok(res) => {
+                let fns = move || {
+                    tokio::spawn(async move {
+                        $client.$handle(*res).await;
+                    });
+                };
+                tokio::task::spawn_blocking(fns);
+            }
+            Err(_) => {
+                println!("ERROR")
+            }
+        }
+    };
+}
+
 pub trait MessageBody {
     fn from_serialize(data: Value) -> Body;
 }
@@ -89,46 +107,19 @@ trait MessageHandler {
 
 impl MessageHandler for Push {
     fn handle_message<R: Runtime>(client: Arc<WClient<R>>, data: Box<dyn Any>) {
-        match data.downcast::<Push>() {
-            Ok(push) => {
-                tokio::spawn(async move {
-                    client.handle_push(*push).await;
-                });
-            }
-            Err(_) => {
-                println!("ERROR")
-            }
-        }
+        distribute!(client, data, Push, handle_push);
     }
 }
 
 impl MessageHandler for Request {
     fn handle_message<R: Runtime>(client: Arc<WClient<R>>, data: Box<dyn Any>) {
-        match data.downcast::<Request>() {
-            Ok(request) => {
-                tokio::spawn(async move {
-                    client.handle_request(*request).await;
-                });
-            }
-            Err(_) => {
-                println!("ERROR")
-            }
-        }
+        distribute!(client, data, Request, handle_request);
     }
 }
 
 impl MessageHandler for Response {
     fn handle_message<R: Runtime>(client: Arc<WClient<R>>, data: Box<dyn Any>) {
-        match data.downcast::<Response>() {
-            Ok(response) => {
-                tokio::spawn(async move {
-                    client.handle_response(*response).await;
-                });
-            }
-            Err(_) => {
-                println!("ERROR")
-            }
-        }
+        distribute!(client, data, Response, handle_response);
     }
 }
 
@@ -177,7 +168,9 @@ impl<R: Runtime> ClientManage<R> {
                     let address = address.to_string();
 
                     tokio::spawn(
-                        async move { read_loop(address, conn_clone, clients, conns).await },
+                        async move { 
+                            read_loop(address, conn_clone, clients, conns).await 
+                        },
                     );
 
                     Ok(client_id)
@@ -270,6 +263,7 @@ impl<R: Runtime> WClient<R> {
         match request.write_to_bytes() {
             Ok(mut data) => {
                 data.insert(0, MessageType::REQUEST.into());
+
                 match self.send(&data).await {
                     Ok(_) => {
                          match self.window.emit(&uniform_event_name("send"), "success") {
@@ -288,7 +282,9 @@ impl<R: Runtime> WClient<R> {
 
                 self.sequences.insert(sequence.clone(), sender);
 
-                promise.await
+                let res = promise.await;
+                println!("res");
+                res
 
             }
             Err(_) => proto::message::Body::from_serialize(Value::String("data error".to_string())),
@@ -322,19 +318,16 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn handle_push(&self, push: Push) {
-        println!("push: {:?}", push);
+        println!("push");
     }
 
     pub async fn handle_request(&self, request: Request) {
         println!("request: {:?}", request);
     }
 
-    
-
-
     pub async fn send(&self, data: &[u8]) -> Result<()> {
+        println!("send");
         let mut conn = self.conn.lock().await;
-
         match conn.send_message(&websocket::message::Message::binary(data)) {
             Ok(_) => {
                 // println!("send success")
@@ -405,9 +398,11 @@ async fn read_loop<R: Runtime>(
                                 handle_message!(payload, index, Push, clients, address);
                             }
                             MessageType::REQUEST => {
+                                println!("recv: request");
                                 handle_message!(payload, index, Request, clients, address);
                             }
                             MessageType::RESPONSE => {
+                                println!("recv: response");
                                 handle_message!(payload, index, Response, clients, address);
                             }
                             MessageType::OTHER => {
@@ -431,8 +426,8 @@ async fn read_loop<R: Runtime>(
                     }
                 }
             }
+
             Err(_) => {
-                drop(mconn);
                 match reconnect(address.clone(), conn.clone()).await {
                     Ok(_) => continue,
                     Err(_) => {
@@ -443,6 +438,7 @@ async fn read_loop<R: Runtime>(
                 }
             } 
         }
+        drop(mconn);
     }
 }
 
