@@ -77,9 +77,14 @@ async fn send<'a, R: Runtime>(
     match client {
         Some(client) => {
             let body = Body::from_serialize(data);
-            let res = client.request(url, body).await;
-            println!("send: {:?}", res);
-            Ok(LResponse::default().data(res.json_value()))
+            match client.request(url, body).await {
+                Ok(res) => {
+                    Ok(LResponse::default().data(res))
+                },
+                Err(res) => {
+                    Err(LResponse::default().code(1).data(res))
+                },
+            }
         }
         None => {
             Err(LResponse::default()

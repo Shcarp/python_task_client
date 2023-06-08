@@ -1,9 +1,11 @@
-import React, { useEffect, useRef } from "react";
-import lottie from "lottie-web";
-import { useNavigate } from "react-router-dom";
 import { Card, Col, Row, message } from "antd";
-import styles from "./index.module.less";
+import React, { useEffect, useRef } from "react";
+
 import { WebsocketClient } from "../../utils/client/websocket";
+import { dialog } from "@tauri-apps/api";
+import lottie from "lottie-web";
+import styles from "./index.module.less";
+import { useNavigate } from "react-router-dom";
 
 export enum TaskType {
     Local = "local",
@@ -59,12 +61,9 @@ export default function Index() {
                 try {
                     await client.connect();
                     const res = await client.send("/task/list", {});
-                    console.log(res);
-                    client.on("block_num", (data) => {
-                        console.log("block_num", data);
-                    })
                 } catch (error) {
-                    message.error("连接失败");
+                    // message.error("连接失败");
+                     dialog.confirm("连接失败", { title: "提示", type: "error", okLabel: "确定"})
                 } 
                 break;
             case TaskType.Remote:

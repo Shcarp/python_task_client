@@ -1,7 +1,6 @@
 use message::{Body, DataType, Push};
 use serde::ser::SerializeStruct;
 use serde_json::Value;
-use protobuf::EnumOrUnknown;
 
 pub mod message;
 
