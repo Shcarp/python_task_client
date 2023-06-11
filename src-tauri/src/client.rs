@@ -273,7 +273,6 @@ impl<R: Runtime> ClientManage<R> {
                 .iter()
             {
                 if client.address == address {
-                    client.conn_state.swap(CONNECT_STATE_CLOSING, Ordering::Relaxed);
                     num += 1;
                 }
             }
