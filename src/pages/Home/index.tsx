@@ -61,17 +61,29 @@ export default function Index() {
                 try {
                     await client.connect();
                     const res = await client.send("/task/list", {});
+                    console.log(res)
                 } catch (error) {
                     // message.error("连接失败");
                      dialog.confirm("连接失败", { title: "提示", type: "error", okLabel: "确定"})
                 } 
                 break;
             case TaskType.Remote:
-                navigate("/connect");
+                try {
+                    await client.disconnect();
+                } catch (error) {
+                    console.log(error)
+                }
             default:
                 break;
         }
     };
+
+    useEffect(() => {
+        client.start();
+        return () => {
+            client.stop();
+        }
+    }, [])
 
     return (
         <Row className={styles.row} justify="space-around">

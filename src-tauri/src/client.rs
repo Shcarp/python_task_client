@@ -7,7 +7,7 @@ use proto::{
 };
 use protobuf::{Message, SpecialFields};
 use serde_json::Value;
-use std::any::Any;
+use std::{any::Any, sync::atomic::{AtomicU8, Ordering}, time::Duration};
 use std::{
     fmt::Debug,
     mem,
@@ -18,8 +18,9 @@ use std::{
 use tauri::{Runtime, Window};
 use thiserror::Error;
 use tokio::{
-    sync::{mpsc::Sender, Mutex as AsyncMutex},
+    sync::{mpsc::Sender, Mutex as AsyncMutex}, time::Instant,
 };
+use async_recursion::async_recursion;
 use uuid::Uuid;
 use websocket::{
     sync::{Reader, Writer},
@@ -39,6 +40,19 @@ pub enum ConnError {
 }
 
 const CLIENT_IDENTIFICATION: &str = "CLIENT_IDENTIFICATION";
+const CLIENT_IDENTIFICATION_RESPONSE: &str = "CLIENT_IDENTIFICATION_RESPONSE";
+const CLIENT_IDENTIFICATION_PUSH: &str = "CLIENT_IDENTIFICATION_PUSH";
+const CLIENT_IDENTIFICATION_REQUEST: &str = "CLIENT_IDENTIFICATION_REQUEST";
+const CLIENT_IDENTIFICATION_CLOSE: &str = "CLIENT_IDENTIFICATION_CLOSE";
+const CLIENT_IDENTIFICATION_ERROR: &str = "CLIENT_IDENTIFICATION_ERROR";
+const CLIENT_IDENTIFICATION_CONNECT_ERROR: &str = "CLIENT_IDENTIFICATION_CONNECT_ERROR";
+
+const CONNECT_STATE_INIT: u8 = 0;
+const CONNECT_STATE_CONNECTING: u8 = 1;
+const CONNECT_STATE_CONNECTED: u8 = 2;
+const CONNECT_STATE_CLOSED: u8 = 3;
+const CONNECT_STATE_CLOSING: u8 = 4;
+const CONNECT_STATE_RECONNECT: u8 = 5;
 
 pub fn uniform_event_name(name: &str) -> String {
     format!("{}::{}", CLIENT_IDENTIFICATION, name)
@@ -166,6 +180,8 @@ impl<R: Runtime> ClientManage<R> {
                 return Ok(client.client_id.clone());
             }
             let client = Arc::new(WClient::new(win, address.to_string(), conn.clone()));
+
+            client.conn_state.fetch_add(2, Ordering::Relaxed);
             let client_id = client.client_id.clone();
             self.clients
                 .write()
@@ -185,7 +201,21 @@ impl<R: Runtime> ClientManage<R> {
                             };
                             let client =
                                 Arc::new(WClient::new(win, address.to_string(), conn.clone()));
+
+                            client.conn_state.swap(CONNECT_STATE_CONNECTING, Ordering::Relaxed);
+                            
                             let client_id = client.client_id.clone();
+
+                            // 启动读取线程
+                            let clients = self.clients.clone();
+                            let conns = self.conns.clone();
+                            let conn1 = conn.clone();
+                            let address1 = address.to_string();
+                            tokio::spawn(
+                                async move { read_loop(address1, conn1, clients, conns).await },
+                            );
+
+                            client.conn_state.swap(CONNECT_STATE_CONNECTED, Ordering::Relaxed);
 
                             self.clients
                                 .write()
@@ -193,24 +223,16 @@ impl<R: Runtime> ClientManage<R> {
                                 .push(client);
 
                             self.conns.insert(address.to_string(), conn.clone());
-
-                            // 启动读取线程
-                            let clients = self.clients.clone();
-                            let conns = self.conns.clone();
-                            let address = address.to_string();
-                            tokio::spawn(
-                                async move { read_loop(address, conn, clients, conns).await },
-                            );
                             Ok(client_id)
                         }
                         Err(error) => {
-                            wrap_event_err!(win, "error", Some(&error.to_string()));
+                            wrap_event_err!(win, CLIENT_IDENTIFICATION_ERROR, Some(&error.to_string()));
                             Err(ConnError::ConnectError(error.to_string()).into())
                         }
                     }
                 }
                 Err(error) => {
-                    wrap_event_err!(win, "error", Some(&error.to_string()));
+                    wrap_event_err!(win, CLIENT_IDENTIFICATION_ERROR, Some(&error.to_string()));
                     Err(ConnError::ConnectError(error.to_string()).into())
                 }
             }
@@ -228,11 +250,43 @@ impl<R: Runtime> ClientManage<R> {
     }
 
     pub fn remove_client(&mut self, win: &Window<R>, client_id: String) -> Result<()> {
+        let mut address = String::new();
         self.clients
             .write()
             .unwrap()
-            .retain(|client| client.client_id != client_id);
-        wrap_event_err!(win, "close", "close");
+            .retain(|client| {
+                if client.client_id == client_id {
+                    std::mem::swap(&mut address, &mut client.address.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+
+        let clients = self.clients.clone();
+        let conns = self.conns.clone();
+        tokio::spawn(async move {
+            let mut num = 0;
+            for client in clients
+                .read()
+                .map_err(|error| ConnError::LockError(error.to_string())).unwrap()
+                .iter()
+            {
+                if client.address == address {
+                    client.conn_state.swap(CONNECT_STATE_CLOSING, Ordering::Relaxed);
+                    num += 1;
+                }
+            }
+
+            if num == 0 {
+                if let Some((_, conn)) = conns.remove(&address) {
+                    conn.writer.lock().await.shutdown().unwrap();
+                    conn.reader.lock().await.shutdown().unwrap();
+                }
+            }
+        });
+
+        wrap_event_err!(win, CLIENT_IDENTIFICATION_CLOSE, "close");
         Ok(())
     }
 
@@ -241,13 +295,9 @@ impl<R: Runtime> ClientManage<R> {
             .clients
             .write()
             .map_err(|error| ConnError::LockError(error.to_string()))?
-            .iter()
+            .iter_mut()
         {
-            wrap_event_err!(client.window, "close", "close");
-            let reader = client.conn.reader.lock().await;
-            let writer = client.conn.writer.lock().await;
-            reader.shutdown()?;
-            writer.shutdown()?;
+            client.close().await?;
         }
         self.clients = Arc::new(RwLock::new(vec![]));
         Ok(())
@@ -255,6 +305,7 @@ impl<R: Runtime> ClientManage<R> {
 }
 
 pub struct WClient<R: Runtime> {
+    pub conn_state: Arc<AtomicU8>,
     pub client_id: String,
     pub window: Window<R>,
     pub address: String,
@@ -265,6 +316,7 @@ pub struct WClient<R: Runtime> {
 impl<R: Runtime> WClient<R> {
     pub fn new(win: Window<R>, address: String, conn: Conn) -> WClient<R> {
         let client = WClient {
+            conn_state: Arc::new(AtomicU8::new(CONNECT_STATE_INIT)),
             client_id: Uuid::new_v4().to_string(),
             window: win,
             address: address,
@@ -272,6 +324,13 @@ impl<R: Runtime> WClient<R> {
             sequences: DashMap::new(),
         };
         client
+    }
+
+    pub async fn close(&self) -> Result<()> {
+        self.conn_state.swap(CONNECT_STATE_CLOSING, Ordering::Relaxed);
+        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_CLOSE, "close");
+        self.conn_state.swap(CONNECT_STATE_CLOSED, Ordering::Relaxed);
+        Ok(())
     }
 
     pub async fn request(&self, url: String, data: Body) -> Result<Value, Value> {
@@ -296,7 +355,7 @@ impl<R: Runtime> WClient<R> {
 
                 match self.send(&data).await {
                     Ok(_) => {
-                        wrap_event_err!(self.window, "send", "success");
+                        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_REQUEST, "success");
                     }
                     Err(error) => {
                         error!("request error: {:?}", error);
@@ -339,6 +398,7 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn handle_response(&self, response: Response) {
+        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_RESPONSE, "response");
         let sequence = response.sequence.clone();
         if let Some(sender) = self.sequences.remove(&sequence) {
             let sender = sender.1;
@@ -369,33 +429,68 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn handle_push(&self, push: Push) {
-        wrap_event_err!(self.window, "push", push);
+        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_PUSH, push);
     }
 
     pub async fn handle_request(&self, request: Request) {
         println!("request: {:?}", request);
     }
 
+    #[async_recursion]
     pub async fn send(&self, data: &[u8]) -> Result<()> {
+        if self.conn_state.load(Ordering::Relaxed) != CONNECT_STATE_CONNECTED {
+            return Err(ConnError::SendError("not connected".to_string()).into());
+        }
+
         let mut writer = self.conn.writer.lock().await;
         match writer.send_message(&websocket::message::Message::binary(data)) {
-            Ok(_) => {}
+            Ok(_) => {
+                drop(writer);
+                Ok(())
+            }
             Err(error) => {
                 drop(writer);
+                if self.conn_state.load(Ordering::Relaxed) == CONNECT_STATE_RECONNECT {
+                    // 等到重连成功后再发送
+                    self.await_reconnect().await?;
+                    if self.conn_state.load(Ordering::Relaxed) == CONNECT_STATE_CONNECTED {
+                        return self.send(data).await;
+                    } else {
+                        let err = ConnError::SendError(error.to_string());
+                        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_CONNECT_ERROR, err.to_string());
+                        return Err(err.into());
+                    }
+                }
+
+                self.conn_state.swap(CONNECT_STATE_RECONNECT, Ordering::Relaxed);
                 match reconnect(self.address.clone(), self.conn.clone()).await {
                     Ok(_) => {
-                        let mut writer = self.conn.writer.lock().await;
-                        writer.send_message(&websocket::message::Message::binary(data))?;
+                        return self.send(data).await;
                     }
                     Err(_) => {
                         let err = ConnError::SendError(error.to_string());
-                        wrap_event_err!(self.window, "close", err.to_string());
+                        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_CONNECT_ERROR, err.to_string());
+                        return Err(err.into());
                     }
-                };
+                }
+            }
+        }
+    }
+
+    async fn await_reconnect(&self) -> Result<(), ConnError> {
+        let mut reconnect_count = 0;
+        while self.conn_state.load(Ordering::Relaxed) == CONNECT_STATE_RECONNECT {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            tokio::time::sleep_until(deadline).await;
+            reconnect_count += 1;
+            if reconnect_count > 8 {
+                return Err(ConnError::SendError("reconnect timeout".to_string()).into());
             }
         }
         Ok(())
     }
+
+
 }
 
 impl<R: Runtime> Debug for WClient<R> {
@@ -417,14 +512,26 @@ async fn read_loop<R: Runtime>(
 ) {
     loop {
         let mut reader = conn.reader.lock().await;
+
+        let set_state = |val: u8| {
+            let mut clients = clients.write().unwrap();
+            for client in clients.iter_mut() {
+                if client.address == address {
+                    client.conn_state.swap(val, Ordering::Relaxed);
+                }
+            }
+        };
+
         let close = || {
+            set_state(CONNECT_STATE_CLOSING);
             // 从clients中删除 address 对应的client
             clients.write().unwrap().retain(|client| {
                 if client.address == address {
-                    wrap_event_err!(client.window, "CONNECT_CLOSE", {});
+                    wrap_event_err!(client.window, CLIENT_IDENTIFICATION_CONNECT_ERROR, "connect error");
                 }
                 client.address != address
             });
+            set_state(CONNECT_STATE_CLOSED);
         };
 
         match reader.recv_message() {
@@ -468,24 +575,28 @@ async fn read_loop<R: Runtime>(
                             .unwrap();
                     }
                     websocket::message::OwnedMessage::Pong(_) => {
-                        println!("recv: pong");
+                        info!("recv: pong");
                     }
                 }
             }
 
             Err(_) => {
                 drop(reader);
+                set_state(CONNECT_STATE_RECONNECT);
                 match reconnect(address.clone(), conn.clone()).await {
-                    Ok(_) => continue,
+                    Ok(_) => {
+                        set_state(CONNECT_STATE_CONNECTED);
+                    },
                     Err(_) => {
+                        set_state(CONNECT_STATE_CLOSING);
                         close();
+                        set_state(CONNECT_STATE_CLOSED);
                         conns.remove(&address);
                         break;
                     }
                 }
             }
         }
-        drop(reader)
     }
 }
 
@@ -519,7 +630,7 @@ async fn reconnect(address: String, conn: Conn) -> Result<(), ()> {
             Err(error) => {
                 error!("reconnect error: {}", error);
                 count += 1;
-                if count > 100 {
+                if count > 10 {
                     return Err(());
                 }
             }

@@ -3,6 +3,7 @@ use std::future::{Future};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use log::info;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc::{self, Sender, Receiver};
 
@@ -34,16 +35,23 @@ impl<T: Send + Sync + Debug > Promise<T> {
     pub async fn resolve(sender: Arc<AsyncMutex<Sender<PromiseResult<T>>>>, value: T) {
         match sender.lock().await.send(PromiseResult::Resolved(value)).await {
             Ok(_) => {
-                println!("resolve success");
+                info!("resolve success");
             },
             Err(error) => {
-                println!("resolve error: {:?}", error);
+                info!("resolve error: {:?}", error);
             },
         };
     }
 
     pub async fn reject(sender: Arc<AsyncMutex<Sender<PromiseResult<T>>>>, value: T) {
-        sender.lock().await.send(PromiseResult::Rejected(value)).await.unwrap();
+        match sender.lock().await.send(PromiseResult::Rejected(value)).await {
+            Ok(_) => {
+                info!("reject success");
+            },
+            Err(error) => {
+                info!("reject error: {:?}", error);
+            },
+        }
     }
 }
 
