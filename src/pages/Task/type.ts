@@ -28,3 +28,26 @@ export enum TaskStatus {
     CANCEL = 4,
     DELETE = 5,
 }
+
+export const selectOptions = [
+    {
+        label: "进行中",
+        value: TaskStatus.PROGRESS,
+    },
+    {
+        label: "已完成",
+        value: TaskStatus.COMPLETE,
+    },
+    {
+        label: "已取消",
+        value: TaskStatus.CANCEL,
+    },
+    {
+        label: "已删除",
+        value: TaskStatus.DELETE,
+    },
+    {
+        label: "未开始",
+        value: TaskStatus.NOSTARTED,
+    },
+]

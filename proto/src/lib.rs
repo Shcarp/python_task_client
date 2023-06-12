@@ -42,6 +42,7 @@ impl serde::Serialize for Push {
         state.serialize_field("event", &self.event)?;
         state.serialize_field("status", &self.status.unwrap().value())?;
         state.serialize_field("data", &self.data.json_value())?;
+        state.serialize_field("sendTime", &self.sendTime)?;
         state.end()
     }
 }
@@ -71,13 +72,18 @@ impl DataType {
 
 impl Body {
     pub fn json_value(&self) -> Value {
-        match self.value.parse::<Value>() {
-            Ok(value) => {
-                value
+        match self.type_ {
+            Some(type_) => {
+                match type_.unwrap() {
+                    DataType::Bool => Value::Bool(serde_json::from_str(&self.value).unwrap()),
+                    DataType::String => Value::String(self.value.to_string()),
+                    DataType::Number => Value::Number(serde_json::from_str(&self.value).unwrap()),
+                    DataType::Array => Value::Array(serde_json::from_str(&self.value).unwrap()),
+                    DataType::Object => Value::Object(serde_json::from_str(&self.value).unwrap()),
+                    DataType::Null => Value::Null,
+                }
             },
-            Err(_) => {
-                Value::Null
-            },
+            None => Value::Null,
         } 
     }
 }

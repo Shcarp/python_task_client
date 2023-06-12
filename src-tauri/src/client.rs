@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_recursion::async_recursion;
 use dashmap::DashMap;
 use log::{error, info};
 use proto::{
@@ -7,7 +8,11 @@ use proto::{
 };
 use protobuf::{Message, SpecialFields};
 use serde_json::Value;
-use std::{any::Any, sync::atomic::{AtomicU8, Ordering}, time::Duration};
+use std::{
+    any::Any,
+    sync::atomic::{AtomicU8, Ordering},
+    time::Duration,
+};
 use std::{
     fmt::Debug,
     mem,
@@ -18,9 +23,9 @@ use std::{
 use tauri::{Runtime, Window};
 use thiserror::Error;
 use tokio::{
-    sync::{mpsc::Sender, Mutex as AsyncMutex}, time::Instant,
+    sync::{mpsc::Sender, Mutex as AsyncMutex},
+    time::Instant,
 };
-use async_recursion::async_recursion;
 use uuid::Uuid;
 use websocket::{
     sync::{Reader, Writer},
@@ -202,8 +207,10 @@ impl<R: Runtime> ClientManage<R> {
                             let client =
                                 Arc::new(WClient::new(win, address.to_string(), conn.clone()));
 
-                            client.conn_state.swap(CONNECT_STATE_CONNECTING, Ordering::Relaxed);
-                            
+                            client
+                                .conn_state
+                                .swap(CONNECT_STATE_CONNECTING, Ordering::Relaxed);
+
                             let client_id = client.client_id.clone();
 
                             // 启动读取线程
@@ -211,11 +218,13 @@ impl<R: Runtime> ClientManage<R> {
                             let conns = self.conns.clone();
                             let conn1 = conn.clone();
                             let address1 = address.to_string();
-                            tokio::spawn(
-                                async move { read_loop(address1, conn1, clients, conns).await },
-                            );
+                            tokio::spawn(async move {
+                                read_loop(address1, conn1, clients, conns).await
+                            });
 
-                            client.conn_state.swap(CONNECT_STATE_CONNECTED, Ordering::Relaxed);
+                            client
+                                .conn_state
+                                .swap(CONNECT_STATE_CONNECTED, Ordering::Relaxed);
 
                             self.clients
                                 .write()
@@ -226,7 +235,11 @@ impl<R: Runtime> ClientManage<R> {
                             Ok(client_id)
                         }
                         Err(error) => {
-                            wrap_event_err!(win, CLIENT_IDENTIFICATION_ERROR, Some(&error.to_string()));
+                            wrap_event_err!(
+                                win,
+                                CLIENT_IDENTIFICATION_ERROR,
+                                Some(&error.to_string())
+                            );
                             Err(ConnError::ConnectError(error.to_string()).into())
                         }
                     }
@@ -251,17 +264,14 @@ impl<R: Runtime> ClientManage<R> {
 
     pub fn remove_client(&mut self, win: &Window<R>, client_id: String) -> Result<()> {
         let mut address = String::new();
-        self.clients
-            .write()
-            .unwrap()
-            .retain(|client| {
-                if client.client_id == client_id {
-                    std::mem::swap(&mut address, &mut client.address.clone());
-                    false
-                } else {
-                    true
-                }
-            });
+        self.clients.write().unwrap().retain(|client| {
+            if client.client_id == client_id {
+                std::mem::swap(&mut address, &mut client.address.clone());
+                false
+            } else {
+                true
+            }
+        });
 
         let clients = self.clients.clone();
         let conns = self.conns.clone();
@@ -269,7 +279,8 @@ impl<R: Runtime> ClientManage<R> {
             let mut num = 0;
             for client in clients
                 .read()
-                .map_err(|error| ConnError::LockError(error.to_string())).unwrap()
+                .map_err(|error| ConnError::LockError(error.to_string()))
+                .unwrap()
                 .iter()
             {
                 if client.address == address {
@@ -326,9 +337,11 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn close(&self) -> Result<()> {
-        self.conn_state.swap(CONNECT_STATE_CLOSING, Ordering::Relaxed);
+        self.conn_state
+            .swap(CONNECT_STATE_CLOSING, Ordering::Relaxed);
         wrap_event_err!(self.window, CLIENT_IDENTIFICATION_CLOSE, "close");
-        self.conn_state.swap(CONNECT_STATE_CLOSED, Ordering::Relaxed);
+        self.conn_state
+            .swap(CONNECT_STATE_CLOSED, Ordering::Relaxed);
         Ok(())
     }
 
@@ -403,12 +416,12 @@ impl<R: Runtime> WClient<R> {
             let sender = sender.1;
             match response.status {
                 Some(status) => {
+                    println!("response status: {:?}", status);
                     if status != MessageState::OK.into() {
-                        Promise::reject(
-                            sender,
-                            Body::from_serialize(Value::String("request error".to_string())),
-                        )
-                        .await;
+                        match response.data.0 {
+                            Some(data) => Promise::reject(sender, *data).await,
+                            _ => Promise::reject(sender, Body::default()).await,
+                        };
                         return;
                     }
                     match response.data.0 {
@@ -456,19 +469,28 @@ impl<R: Runtime> WClient<R> {
                         return self.send(data).await;
                     } else {
                         let err = ConnError::SendError(error.to_string());
-                        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_CONNECT_ERROR, err.to_string());
+                        wrap_event_err!(
+                            self.window,
+                            CLIENT_IDENTIFICATION_CONNECT_ERROR,
+                            err.to_string()
+                        );
                         return Err(err.into());
                     }
                 }
 
-                self.conn_state.swap(CONNECT_STATE_RECONNECT, Ordering::Relaxed);
+                self.conn_state
+                    .swap(CONNECT_STATE_RECONNECT, Ordering::Relaxed);
                 match reconnect(self.address.clone(), self.conn.clone()).await {
                     Ok(_) => {
                         return self.send(data).await;
                     }
                     Err(_) => {
                         let err = ConnError::SendError(error.to_string());
-                        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_CONNECT_ERROR, err.to_string());
+                        wrap_event_err!(
+                            self.window,
+                            CLIENT_IDENTIFICATION_CONNECT_ERROR,
+                            err.to_string()
+                        );
                         return Err(err.into());
                     }
                 }
@@ -488,8 +510,6 @@ impl<R: Runtime> WClient<R> {
         }
         Ok(())
     }
-
-
 }
 
 impl<R: Runtime> Debug for WClient<R> {
@@ -526,7 +546,11 @@ async fn read_loop<R: Runtime>(
             // 从clients中删除 address 对应的client
             clients.write().unwrap().retain(|client| {
                 if client.address == address {
-                    wrap_event_err!(client.window, CLIENT_IDENTIFICATION_CONNECT_ERROR, "connect error");
+                    wrap_event_err!(
+                        client.window,
+                        CLIENT_IDENTIFICATION_CONNECT_ERROR,
+                        "connect error"
+                    );
                 }
                 client.address != address
             });
@@ -585,7 +609,7 @@ async fn read_loop<R: Runtime>(
                 match reconnect(address.clone(), conn.clone()).await {
                     Ok(_) => {
                         set_state(CONNECT_STATE_CONNECTED);
-                    },
+                    }
                     Err(_) => {
                         set_state(CONNECT_STATE_CLOSING);
                         close();

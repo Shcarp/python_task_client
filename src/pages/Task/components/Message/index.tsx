@@ -5,6 +5,7 @@ import VirtualList from "rc-virtual-list";
 import React, { useImperativeHandle } from "react";
 import { useEffect, useState } from "react";
 import { MessageData } from "../../type";
+import { PushData, client } from "../../../../utils/client/websocket";
 
 const info_type = {
     0: {
@@ -29,6 +30,20 @@ const Message = React.forwardRef((_, ref) => {
     const [width, setWidth] = useState(0);
 
     useEffect(() => {
+        const handleData = (data: PushData<string>) => {
+            setData((pre) => [
+                ...pre,
+                {
+                    sendTime: data.sendTime,
+                    msg: data.data,
+                    status: data.status,
+                },
+            ]);
+        };
+        client.on("info", handleData);
+        return () => {
+            client.off("info", handleData);
+        };
     }, []);
 
     useEffect(() => {

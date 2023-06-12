@@ -1,7 +1,7 @@
 import { Card, Col, Row, message } from "antd";
 import React, { useEffect, useRef } from "react";
 
-import { WebsocketClient } from "../../utils/client/websocket";
+import { WebsocketClient, client } from "../../utils/client/websocket";
 import { dialog } from "@tauri-apps/api";
 import lottie from "lottie-web";
 import styles from "./index.module.less";
@@ -11,8 +11,6 @@ export enum TaskType {
     Local = "local",
     Remote = "remote",
 }
-
-const client = new WebsocketClient();
 
 export default function Index() {
     const navigate = useNavigate();
@@ -53,37 +51,22 @@ export default function Index() {
         };
     }, []);
 
-    let num = 0;
-
     const handleClick = async (type: TaskType) => {
         switch (type) {
             case TaskType.Local:
                 try {
                     await client.connect();
-                    const res = await client.send("/task/list", {});
-                    console.log(res)
+                    navigate("/task");
                 } catch (error) {
-                    // message.error("连接失败");
-                     dialog.confirm("连接失败", { title: "提示", type: "error", okLabel: "确定"})
+                    dialog.confirm("连接失败", { title: "提示", type: "error"})
                 } 
                 break;
             case TaskType.Remote:
-                try {
-                    await client.disconnect();
-                } catch (error) {
-                    console.log(error)
-                }
+                navigate("/connect");
             default:
                 break;
         }
     };
-
-    useEffect(() => {
-        client.start();
-        return () => {
-            client.stop();
-        }
-    }, [])
 
     return (
         <Row className={styles.row} justify="space-around">

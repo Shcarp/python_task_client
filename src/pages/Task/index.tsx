@@ -1,36 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Col, Empty, Form, Input, Row, Select, Space, Statistic, message } from "antd";
 import { IRef as AddTaskRef, TaskAction } from "./components/AddTask";
 import { IRef as AddNameRef, AddWxName } from "./components/AddWxName";
-import { debounce } from "lodash";
-import { Task, TaskStatus } from "./type";
+import { debounce, set } from "lodash";
+import { Task, selectOptions } from "./type";
 import Message from "./components/Message";
 import { TaskList } from "./components/List";
-import styles from './index.module.less'
-
-const selectOptions = [
-    {
-        label: "进行中",
-        value: TaskStatus.PROGRESS,
-    },
-    {
-        label: "已完成",
-        value: TaskStatus.COMPLETE,
-    },
-    {
-        label: "已取消",
-        value: TaskStatus.CANCEL,
-    },
-    {
-        label: "已删除",
-        value: TaskStatus.DELETE,
-    },
-    {
-        label: "未开始",
-        value: TaskStatus.NOSTARTED,
-    },
-]
-
+import styles from "./index.module.less";
+import { PushData, TaskListValue, client } from "../../utils/client/websocket";
+import { appWindow } from "@tauri-apps/api/window";
 
 const TaskComp = () => {
     const addTaskRef = useRef<AddTaskRef>(null);
@@ -40,7 +18,7 @@ const TaskComp = () => {
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<Task[]>([]);
 
-    const [runingTotal, setRuningTotal] = useState(0);
+    const [runningTotal, setRunningTotal] = useState(0);
     const [wait, setWait] = useState(0);
 
     const [queryParam, setQueryParam] = useState({
@@ -49,6 +27,16 @@ const TaskComp = () => {
     });
 
     const getTaskList = async () => {
+        setLoading(true);
+        try {
+            const res = await client.send<TaskListValue>("/task/list", queryParam);
+            setData(res.list);
+            setRunningTotal(res.running_count);
+        } catch (error) {
+            message.error("获取任务列表失败");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleChange = debounce((value, values) => {
@@ -59,20 +47,37 @@ const TaskComp = () => {
         });
     });
 
+    useEffect(() => {
+        const handleTaskList = (body: PushData<TaskListValue>) => {
+            setData(body.data.list);
+            setRunningTotal(body.data.running_count);
+        };
+
+        const handleBlockNum = (data: PushData<number>) => {
+            console.log(data);
+            setWait(data.data);
+        };
+
+        client.on("task-list/update", handleTaskList);
+        client.on("block_num", handleBlockNum);
+
+        client.start();
+        return () => {
+            client.off("task-list/update", handleTaskList);
+            client.off("block_num", handleBlockNum);
+        };
+    }, []);
 
     useEffect(() => {
         getTaskList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [queryParam]);
 
     useEffect(() => {
-        (
-            async () => {
-                const { appWindow } = await import("@tauri-apps/api/window");
-                appWindow.setTitle(`微信群发助手(阻塞的任务数量：${wait}/当前进行中的任务数量：${runingTotal})`);
-            }
-        )()
-    }, [runingTotal, wait]);
+        (async () => {
+            appWindow.setTitle(`微信群发助手(阻塞的任务数量：${wait}/当前进行中的任务数量：${runningTotal})`);
+        })();
+    }, [runningTotal, wait]);
 
     return (
         <div className={styles["home-content"]}>
@@ -85,18 +90,22 @@ const TaskComp = () => {
                             </Button>
                             <Form.Item name="keyword">
                                 <Input size="middle" placeholder="搜索任务"></Input>
-                            </Form.Item>    
-                            
-                            <Form.Item name="status">
-                                <Select showSearch allowClear size="middle" placeholder="任务状态" options={selectOptions}></Select>
                             </Form.Item>
-                            
+
+                            <Form.Item name="status">
+                                <Select
+                                    showSearch
+                                    allowClear
+                                    size="middle"
+                                    placeholder="任务状态"
+                                    options={selectOptions}
+                                ></Select>
+                            </Form.Item>
                         </Space>
                     </Form>
                 </Col>
                 <Col flex={1} style={{ textAlign: "right" }}>
                     <Space align="baseline">
-                        {/* <Statistic title={null} value={wait} suffix={`/ ${runingTotal}`} /> */}
                         <Button type="primary" onClick={() => addTaskRef.current?.open()}>
                             添加任务
                         </Button>

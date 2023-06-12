@@ -1,5 +1,6 @@
 import { Form, Input, Modal, message } from "antd";
 import React, { useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { client } from "../../../../utils/client/websocket";
 
 interface IProps {
     onOk?: () => void;
@@ -11,8 +12,6 @@ export interface IRef {
     close: () => void;
 }
 
-
-
 // eslint-disable-next-line react/display-name
 export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
     const [open, setOpen] = useState(false);
@@ -21,6 +20,21 @@ export const AddWxName = React.forwardRef<IRef, IProps>((props, ref) => {
     const [form] = Form.useForm();
 
     const handleOk = async () => {
+        try {
+            const res = await form.validateFields();
+            setLoading(true);
+            await client.send("/wxuser/add", {
+                wx_name: res.wx_name,
+            });
+            message.success("添加成功");
+            setOpen(false);
+            props.onOk?.();
+        } catch (error) {
+            console.log(error);
+            message.error("添加失败");
+        } finally {
+            setLoading(false);
+        }
     };
 
 

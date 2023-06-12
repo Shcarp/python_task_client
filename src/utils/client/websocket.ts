@@ -9,10 +9,20 @@
 
 import EventEmitter from "events";
 import { dialog, invoke } from "@tauri-apps/api";
-import { CLIENT_IDENTIFICATION_CLOSE, CLIENT_IDENTIFICATION_CONNECT_ERROR, CLIENT_IDENTIFICATION_PUSH, CLIENT_IDENTIFICATION_REQUEST, Client, LocalResponse, MessageType, formatEventName } from "./base";
+import {
+    CLIENT_IDENTIFICATION_CLOSE,
+    CLIENT_IDENTIFICATION_CONNECT_ERROR,
+    CLIENT_IDENTIFICATION_PUSH,
+    CLIENT_IDENTIFICATION_REQUEST,
+    Client,
+    LocalResponse,
+    MessageType,
+    formatEventName,
+} from "./base";
 import { appWindow } from "@tauri-apps/api/window";
 import { Event } from "@tauri-apps/api/event";
 import { Events } from "..";
+import { Task } from "../../pages/Task/type";
 
 enum PushStatus {
     SUCCESS = 0,
@@ -38,11 +48,24 @@ export enum State {
 type SystemEvent = {
     name: string;
     cb: (data: any) => void;
+};
+
+export type PushData<T> = {
+    data: T,
+    sendTime: number,
+    event: string,
+    status: PushStatus
 }
 
+export type TaskListValue = {
+    list: Task[];
+    running_count: number;
+};
+
 type WebsocketEvent = {
-    ["block_num"]: (data: number) => void;
+    ["block_num"]: (data: PushData<number>) => void;
     ["connect"]: () => void;
+    ["task-list/update"]: (body: TaskListValue) => void;
 };
 
 export class WebsocketClient extends EventEmitter implements Client {
@@ -54,33 +77,37 @@ export class WebsocketClient extends EventEmitter implements Client {
     client_id: string | undefined;
     state: State = State.INIT;
 
-    connSystemEvent: SystemEvent[]  = [{
-        name: CLIENT_IDENTIFICATION_REQUEST,
-        cb: (message) => {
-            console.log("send_success", message);
+    connSystemEvent: SystemEvent[] = [
+        {
+            name: CLIENT_IDENTIFICATION_REQUEST,
+            cb: (message) => {
+                // console.log("send_success", message);
+            },
         },
-    }, {
-        name: CLIENT_IDENTIFICATION_PUSH,
-        cb: (message: Event<EventPayload<any>>) => {
-            console.log("push", message);
-            this.emit(message.payload?.event, message.payload);
-        }
-    }, {
-        name: CLIENT_IDENTIFICATION_CONNECT_ERROR,
-        cb: async () => {
-            const ds = await dialog.confirm("连接已断开, 是否重连?");
-            if (ds) {
-                try {
-                    await this.connect();
-                } catch (error) {
-                    await dialog.message("连接失败");
+        {
+            name: CLIENT_IDENTIFICATION_PUSH,
+            cb: (message: Event<EventPayload<any>>) => {
+                this.emit(message.payload?.event, message.payload);
+            },
+        },
+        {
+            name: CLIENT_IDENTIFICATION_CONNECT_ERROR,
+            cb: async () => {
+                const ds = await dialog.confirm("连接已断开, 是否重连?");
+                if (ds) {
+                    try {
+                        await this.connect();
+                        this.state = State.CONNECTED;
+                    } catch (error) {
+                        await dialog.message("连接失败");
+                        appWindow.close();
+                    }
+                } else {
                     appWindow.close();
                 }
-            } else {
-                appWindow.close();
-            }
-        }
-    }]
+            },
+        },
+    ];
 
     unListen: Promise<() => void>[] = [];
 
@@ -89,30 +116,33 @@ export class WebsocketClient extends EventEmitter implements Client {
     }
 
     start() {
-        this.unListen.concat(this.connSystemEvent.map((item) => {
-            return appWindow.listen(formatEventName(item.name), item.cb);
-        }))
+        this.unListen.concat(
+            this.connSystemEvent.map((item) => {
+                return appWindow.listen(formatEventName(item.name), item.cb);
+            })
+        );
     }
 
     stop() {
         this.state = State.CLOSING;
-        (
-            async () => {
-                if (this.client_id) {
-                    await invoke("plugin:connect|disconnect", {
-                        id: this.client_id,
-                    });
-                }
-                const unListen = await Promise.all(this.unListen);
-                unListen.forEach((un) => {
-                    un();
+        (async () => {
+            if (this.client_id) {
+                await invoke("plugin:connect|disconnect", {
+                    id: this.client_id,
                 });
-                this.state = State.CLOSED;
             }
-        )()
+            const unListen = await Promise.all(this.unListen);
+            unListen.forEach((un) => {
+                un();
+            });
+            this.state = State.CLOSED;
+        })();
     }
 
-    async connect() {
+    async connect(address?: string) {
+        if (address) {
+            this.address = address;
+        }
         if (this.state === State.CONNECTED) {
             return;
         }
@@ -152,3 +182,5 @@ export class WebsocketClient extends EventEmitter implements Client {
         });
     }
 }
+
+export const client = new WebsocketClient();
