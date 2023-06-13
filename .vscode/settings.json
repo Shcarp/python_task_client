@@ -8,6 +8,8 @@
         "proto",
         "protobuf",
         "tauri",
-        "thiserror"
+        "thiserror",
+        "wechat",
+        "wxuser"
     ]
 }

@@ -346,6 +346,7 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn request(&self, url: String, data: Body) -> Result<Value, Value> {
+        println!("request: {}", url);
         let (promise, sender) = Promise::<Body>::new();
         let sequence = Uuid::new_v4().to_string();
 
@@ -541,14 +542,14 @@ async fn read_loop<R: Runtime>(
             }
         };
 
-        let close = || {
+        let close = |state: &str| {
             set_state(CONNECT_STATE_CLOSING);
             // 从clients中删除 address 对应的client
             clients.write().unwrap().retain(|client| {
                 if client.address == address {
                     wrap_event_err!(
                         client.window,
-                        CLIENT_IDENTIFICATION_CONNECT_ERROR,
+                        state,
                         "connect error"
                     );
                 }
@@ -588,8 +589,9 @@ async fn read_loop<R: Runtime>(
                     }
                     websocket::message::OwnedMessage::Close(_) => {
                         info!("CONN CLOSE");
-                        close();
+                        close(CLIENT_IDENTIFICATION_CLOSE);
                         reader.shutdown().unwrap();
+                        return;
                     }
                     websocket::message::OwnedMessage::Ping(payload) => {
                         let mut writer = conn.writer.lock().await;
@@ -612,7 +614,7 @@ async fn read_loop<R: Runtime>(
                     }
                     Err(_) => {
                         set_state(CONNECT_STATE_CLOSING);
-                        close();
+                        close(CLIENT_IDENTIFICATION_CONNECT_ERROR);
                         set_state(CONNECT_STATE_CLOSED);
                         conns.remove(&address);
                         break;

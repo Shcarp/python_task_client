@@ -31,14 +31,18 @@ const Message = React.forwardRef((_, ref) => {
 
     useEffect(() => {
         const handleData = (data: PushData<string>) => {
-            setData((pre) => [
-                ...pre,
-                {
-                    sendTime: data.sendTime,
-                    msg: data.data,
-                    status: data.status,
-                },
-            ]);
+            let num = 0;
+            const message = {
+                sendTime: data.sendTime,
+                msg: data.data,
+                status: data.status,
+            }
+            setData((prev) => {
+                // 只保留最新的100条消息, 向指定位置插入数据
+                const pos = num++ % 100;
+                prev.splice(pos, 0, message);
+                return prev;
+            })
         };
         client.on("info", handleData);
         return () => {
@@ -80,7 +84,7 @@ const Message = React.forwardRef((_, ref) => {
             footer={null}
         >
             <List dataSource={data}>
-                <VirtualList data={data} height={height} itemHeight={20} itemKey={(item: MessageData) => item.sendTime}>
+                <VirtualList data={data} height={height} itemHeight={20} itemKey={(item: MessageData) => `${item.sendTime}+${new Date()}`}>
                     {(item: MessageData) => {
                         const { name, color } = info_type[item.status];
                         return (

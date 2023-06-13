@@ -1,11 +1,13 @@
 import { Card, Col, Row, message } from "antd";
 import React, { useEffect, useRef } from "react";
 
-import { WebsocketClient, client } from "../../utils/client/websocket";
+import { PushData, WebsocketClient, client } from "../../utils/client/websocket";
 import { dialog } from "@tauri-apps/api";
+import { info, error, warn } from "tauri-plugin-log-api"
 import lottie from "lottie-web";
 import styles from "./index.module.less";
 import { useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
 
 export enum TaskType {
     Local = "local",
@@ -56,6 +58,15 @@ export default function Index() {
             case TaskType.Local:
                 try {
                     await client.connect();
+                    client.on("info", (data: PushData<string>) => {
+                        const map = {
+                            0: info,
+                            1: error,
+                            2: warn
+                        }
+
+                        map[data.status](`[${dayjs(data.sendTime * 1000).format("YYYY-MM-DD HH:mm")}] ${data.data}`)
+                    })
                     navigate("/task");
                 } catch (error) {
                     dialog.confirm("连接失败", { title: "提示", type: "error"})

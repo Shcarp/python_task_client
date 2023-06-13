@@ -54,7 +54,6 @@ const TaskComp = () => {
         };
 
         const handleBlockNum = (data: PushData<number>) => {
-            console.log(data);
             setWait(data.data);
         };
 

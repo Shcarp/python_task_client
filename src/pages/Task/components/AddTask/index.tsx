@@ -4,6 +4,7 @@ import { useState } from "react";
 import dayjs from "dayjs";
 import { debounce } from "lodash";
 import { Task, TaskStatus } from "../../type";
+import { PushData, client } from "../../../../utils/client/websocket";
 
 interface IProps {
     onOk?: () => void;
@@ -28,13 +29,36 @@ export const TaskAction = React.forwardRef<IRef, IProps>((props, ref) => {
     
 
     const geWxUserList = async () => {
-        // if (!userConn) return;
-        // const res = await userConn.getAllWxUser();
-        // setMemberList(Array.isArray(res) ? res : []);
+        const res = await client.send<string[]>("/wxuser/list", {});
+        setMemberList(res);
     };
 
     const handleOk = debounce(async () => {
-        setOpen(false);
+        try {
+            const res = await form.validateFields();
+            setLoading(true);
+            const requestBody = {
+                ...res,
+                time: taskType === "fixTime" ? res.time.valueOf() : res.time,
+            };
+            switch (opentype) {
+                case "add":
+                    await client.send("/task/add", requestBody);
+                    break;
+                case "edit":
+                    await client.send("/task/edit", requestBody);
+                    break;
+                default:
+                    break;
+            } 
+            message.success("添加成功");
+            setOpen(false);
+        } catch (error) {
+            console.log(error);
+            message.error("添加失败");
+        } finally {
+            setLoading(false);
+        }
     }, 500);
 
     const handleClose = () => {
@@ -49,8 +73,13 @@ export const TaskAction = React.forwardRef<IRef, IProps>((props, ref) => {
     }, [open]);
 
     useEffect(() => {
-
-        
+        const handleUserAdd = (data: PushData<string[]>) => {
+            setMemberList(data.data);
+        }
+        client.on("wechat-name/add", handleUserAdd);
+        return () => {
+            client.off("wechat-name/add", handleUserAdd);
+        }
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -100,7 +129,6 @@ export const TaskAction = React.forwardRef<IRef, IProps>((props, ref) => {
                 <Form.Item label="任务类型" name="type">
                     <Select
                         placeholder="请选择任务类型"
-                        defaultValue="fixTime"
                         onChange={(value) => setTaskType(value)}
                     >
                         <Select.Option value="fixTime">定时任务</Select.Option>

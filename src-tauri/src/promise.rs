@@ -28,7 +28,7 @@ impl<T: Send + Sync> Unpin for Promise<T>{}
 
 impl<T: Send + Sync + Debug > Promise<T> {
     pub fn new() -> (Self, Arc<AsyncMutex<Sender<PromiseResult<T>>>>) {
-        let (sender, receiver) = mpsc::channel(2048);
+        let (sender, receiver) = mpsc::channel(1);
         (Promise { receiver }, Arc::new(AsyncMutex::new(sender)))
     }
         
@@ -38,7 +38,7 @@ impl<T: Send + Sync + Debug > Promise<T> {
                 info!("resolve success");
             },
             Err(error) => {
-                info!("resolve error: {:?}", error);
+                info!("resolve error");
             },
         };
     }

@@ -6,9 +6,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { debounce } from "lodash";
 
 import { Task, TaskStatus } from "../../type";
-import { IRef } from "../AddTask";
+import { IRef, TaskAction } from "../AddTask";
 
-import styles from "./index.module.less";
+import { client } from "../../../../utils/client/websocket";
 
 const TaskTypeMap = {
     fixTime: {
@@ -20,8 +20,6 @@ const TaskTypeMap = {
         color: "green",
     },
 };
-
-// export type TaskStatus = "nostarted" | "progress" | "complete" | "cancel" | "delete";
 
 const TaskStatusMap = {
     [TaskStatus.NOSTARTED]: {
@@ -58,19 +56,35 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     const [loadings, setLoadings] = useState<boolean[]>([]);
 
     const handleStart = debounce(async (id: number) => {
-
+        try {
+            await client.send("/task/update", { id, status: TaskStatus.PROGRESS });
+            message.success("开始成功");
+        } catch (error) {
+            message.error("开始失败");
+        }
     }, 500);
 
     const handleRemove = debounce(async (id: number) => {
-    
+        try {
+            await client.send("/task/update", { id, status: TaskStatus.DELETE });
+            message.success("删除成功");
+        } catch (error) {
+            message.error("删除失败");
+        }
+    }, 500);
+
+    const handleCancel = debounce(async (id: number) => {
+        try {
+            await client.send("/task/update", { id, status: TaskStatus.CANCEL });
+            message.success("取消成功");
+        } catch (error) {
+            message.error("取消失败");
+        }
     }, 500);
 
     const handleEdit = debounce((item: Task) => {
         addTaskRef.current?.open(item);
-    }, 500);
-
-    const handleCancel = debounce(async (id: number) => {
-    }, 500);
+    });
 
     const renderCardTitle = (item: Task) => {
         return (
@@ -85,15 +99,29 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
     };
 
     const start = (item: Task) => {
-        return <a key={`${item.id}+0`} onClick={(e) => handleStart(item.id)}>开始</a>;
+        return (
+            <a key={`${item.id}+0`} onClick={(e) => handleStart(item.id)}>
+                开始
+            </a>
+        );
     };
 
     const remove = (item: Task) => {
-        return <a key={`${item.id}+1`} onClick={(e) => handleRemove(item.id)}> 移除</a>;
+        return (
+            <a key={`${item.id}+1`} onClick={(e) => handleRemove(item.id)}>
+                {" "}
+                移除
+            </a>
+        );
     };
 
     const cancel = (item: Task) => {
-        return <a key={`${item.id}+2`} onClick={(e) => handleCancel(item.id)}> 取消 </a>;
+        return (
+            <a key={`${item.id}+2`} onClick={(e) => handleCancel(item.id)}>
+                {" "}
+                取消{" "}
+            </a>
+        );
     };
 
     const edit = (item: Task) => {
@@ -144,7 +172,7 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
                         <span>{item.content}</span>
                     </div>
                 </div>
-                {/* <AddTask ref={addTaskRef} /> */}
+                <TaskAction ref={addTaskRef} />
             </div>
         );
     };
@@ -166,15 +194,6 @@ export const TaskList: React.FC<TaskListProps> = ({ data, appendData, loading })
         return () => {
             window.removeEventListener("resize", handleHeight);
         };
-    }, []);
-
-    useEffect(() => {
-        // if (websocketConn) {
-        //     const taskConn = new TaskWebSocketConnect(websocketConn);
-        //     setTaskConn(taskConn);
-        // } else {
-        //     Router.push("/networkerror");
-        // }
     }, []);
 
     return (

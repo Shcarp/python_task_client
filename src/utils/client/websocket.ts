@@ -65,6 +65,7 @@ export type TaskListValue = {
 type WebsocketEvent = {
     ["block_num"]: (data: PushData<number>) => void;
     ["connect"]: () => void;
+    ["wechat-name/add"]: (data: PushData<string[]>) => void;
     ["task-list/update"]: (body: TaskListValue) => void;
 };
 
@@ -107,6 +108,13 @@ export class WebsocketClient extends EventEmitter implements Client {
                 }
             },
         },
+        {
+            name: CLIENT_IDENTIFICATION_CLOSE,
+            cb: async () => {
+                console.log("close")
+                this.state = State.CLOSED;
+            }
+        }
     ];
 
     unListen: Promise<() => void>[] = [];
@@ -162,12 +170,12 @@ export class WebsocketClient extends EventEmitter implements Client {
         this.stop();
     }
 
-    send<T>(url: string, data: MessageType): Promise<T> {
+    send<T>(url: string, data?: MessageType): Promise<T> {
         if (this.state !== State.CONNECTED) {
             return Promise.reject("Client not connected");
         }
         return new Promise<T>(async (resolve, reject) => {
-            if (this.client_id) {
+            try {
                 const res: LocalResponse<T> = await invoke("plugin:connect|send", {
                     id: this.client_id,
                     url: url,
@@ -177,8 +185,9 @@ export class WebsocketClient extends EventEmitter implements Client {
                     resolve(res.data);
                 }
                 reject(res.data);
+            } catch (error) {
+                reject(error);
             }
-            reject("Client not connected");
         });
     }
 }
