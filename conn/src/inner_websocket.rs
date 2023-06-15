@@ -17,7 +17,7 @@ use websocket::{
     ClientBuilder, OwnedMessage,
 };
 
-use crate::{Conn, Protocol, ConnBuilderConfig};
+use crate::{error::ConnectError, Conn, ConnBuilderConfig, Protocol};
 
 const HEARTBEAT_INTERVAL: u64 = 55 * 1000;
 
@@ -30,11 +30,11 @@ const CONNECT_STATE_CLOSED: u8 = 3;
 const CONNECT_STATE_CLOSING: u8 = 4;
 const CONNECT_STATE_RECONNECT: u8 = 5;
 
-#[derive(Default)]
 pub struct InnerWebsocket {
-    pub host: String,
+    pub ip: String,
     pub port: u16,
     pub protocol: Protocol,
+    error_callback: Arc<Mutex<Box<dyn FnMut(String) + Send + Sync>>>,
     state: Arc<AtomicU8>,
     reader: Option<Arc<Mutex<Reader<TcpStream>>>>,
     writer: Option<Arc<Mutex<Writer<TcpStream>>>>,
@@ -49,7 +49,7 @@ unsafe impl Sync for InnerWebsocket {}
 impl Clone for InnerWebsocket {
     fn clone(&self) -> Self {
         Self {
-            host: self.host.clone(),
+            ip: self.ip.clone(),
             port: self.port.clone(),
             protocol: self.protocol.clone(),
             state: self.state.clone(),
@@ -58,6 +58,7 @@ impl Clone for InnerWebsocket {
             last_heartbeat: self.last_heartbeat.clone(),
             conn_task: self.conn_task.clone(),
             recv_channel: None,
+            error_callback: self.error_callback.clone(),
         }
     }
 }
@@ -65,7 +66,7 @@ impl Clone for InnerWebsocket {
 impl Debug for InnerWebsocket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Websocket")
-            .field("host", &self.host)
+            .field("host", &self.ip)
             .field("port", &self.port)
             .field("protocol", &self.protocol)
             .finish()
@@ -84,9 +85,13 @@ impl Drop for InnerWebsocket {
 }
 
 impl InnerWebsocket {
-
     fn get_state(&self) -> u8 {
         self.state.load(Ordering::Relaxed)
+    }
+
+    async fn error_callback(&mut self, error: String) {
+        let mut callback = self.error_callback.lock().await;
+        callback(error);
     }
 
     // 开始发送心跳信息
@@ -143,11 +148,8 @@ impl InnerWebsocket {
                                 .send_message(&websocket::Message::pong(payload))
                                 .unwrap();
                         }
-                        OwnedMessage::Pong(_) => {
-                            println!("收到心跳信息 pong");
-                        }
                         _ => {
-                            println!("收到信息");
+                            // println!("收到信息");
                         }
                     },
                     Err(_) => {
@@ -161,6 +163,7 @@ impl InnerWebsocket {
                             }
                             Err(_) => {
                                 println!("重连失败");
+                                s_shelf.error_callback("重连失败".to_string()).await;
                                 s_shelf.state.store(CONNECT_STATE_CLOSED, Ordering::Relaxed);
                             }
                         };
@@ -185,7 +188,7 @@ impl InnerWebsocket {
             self.conn_task.write().unwrap().clear();
             std::thread::sleep(std::time::Duration::from_secs(10));
             let (reader, writer) =
-                match ClientBuilder::new(&format!("ws://{}:{}", self.host, self.port))
+                match ClientBuilder::new(&format!("ws://{}:{}", self.ip, self.port))
                     .unwrap()
                     .connect_insecure()
                 {
@@ -220,7 +223,7 @@ impl InnerWebsocket {
 impl Conn for InnerWebsocket {
     fn new(target: ConnBuilderConfig) -> Self {
         InnerWebsocket {
-            host: target.host,
+            ip: target.host,
             port: target.port,
             protocol: Protocol::WEBSOCKET,
             state: Arc::new(AtomicU8::new(CONNECT_STATE_INIT)),
@@ -229,46 +232,47 @@ impl Conn for InnerWebsocket {
             last_heartbeat: Arc::new(AtomicU64::new(0)),
             conn_task: Arc::new(RwLock::new(Vec::new())),
             recv_channel: None,
+            error_callback: Arc::new(Mutex::new(target.error_callback)),
         }
     }
 
-    async fn connect(&mut self) -> bool {
-        println!("{:#?}", self);
+    async fn connect(&mut self) -> Result<bool, ConnectError> {
         let state = Arc::new(AtomicU8::new(CONNECT_STATE_INIT));
         state.store(CONNECT_STATE_CONNECTING, Ordering::Relaxed);
-        let origin_conn = ClientBuilder::new(&format!("ws://{}:{}", self.host, self.port))
+        let origin_conn = ClientBuilder::new(&format!("ws://{}:{}", self.ip, self.port))
             .or_else(|err| {
                 state.store(CONNECT_STATE_CLOSED, Ordering::Relaxed);
-                Err(err)
-            })
-            .unwrap()
+                Err(ConnectError::ConnectionError(err.to_string()))
+            })?
             .connect_insecure()
             .or_else(|err| {
                 state.store(CONNECT_STATE_CLOSED, Ordering::Relaxed);
-                Err(err)
-            })
-            .unwrap();
-        let (reader, writer) = origin_conn.split().unwrap();
+                Err(ConnectError::ConnectionError(err.to_string()))
+            })?;
+        let (reader, writer) = origin_conn
+            .split()
+            .or_else(|err| Err(ConnectError::ConnectionError(err.to_string())))?;
         let reader = Arc::new(Mutex::new(reader));
         let writer = Arc::new(Mutex::new(writer));
 
         let (sender, receiver) = channel::<Vec<u8>>(10);
 
-        self.last_heartbeat
-            .store(chrono::Utc::now().timestamp_millis() as u64, Ordering::Relaxed);
+        self.last_heartbeat.store(
+            chrono::Utc::now().timestamp_millis() as u64,
+            Ordering::Relaxed,
+        );
 
         self.reader = Some(reader);
         self.writer = Some(writer);
         self.recv_channel = Some(receiver);
-    
+
         self.start_heartbeat();
         self.start_reader(sender);
         self.state.swap(CONNECT_STATE_CONNECTED, Ordering::Relaxed);
-        // ws
-        false
+        Ok(true)
     }
 
-    async fn disconnect(&mut self) -> bool {
+    async fn disconnect(&mut self) -> Result<bool, ConnectError> {
         self.state.store(CONNECT_STATE_CLOSING, Ordering::Relaxed);
         let mut send = self.writer.as_mut().unwrap().lock().await;
         let mut tasks = self.conn_task.write().unwrap();
@@ -280,41 +284,44 @@ impl Conn for InnerWebsocket {
         match send.send_message(&websocket::Message::close()) {
             Ok(_) => {
                 self.state.store(CONNECT_STATE_CLOSED, Ordering::Relaxed);
-                true
+                Ok(true)
             }
-            Err(_) => {
+            Err(err) => {
                 drop(send);
-                false
+                Err(ConnectError::Disconnect(err.to_string()))
             }
         }
     }
 
-    async fn send(&mut self, data: &[u8]) -> bool {
+    async fn send(&mut self, data: &[u8]) -> Result<bool, ConnectError> {
         if let Some(writer) = self.writer.as_mut() {
             let mut send = writer.lock().await;
             match send.send_message(&websocket::Message::binary(data)) {
-                Ok(_) => return true,
-                Err(_) => {
+                Ok(_) => return Ok(true),
+                Err(err) => {
                     drop(send);
                     if self.get_state() == CONNECT_STATE_CONNECTED {
                         // 重连
                         match self.reconnect().await {
-                            Ok(_) => {
-                                if self.send(data).await {
-                                    return true;
+                            Ok(_) => match self.send(data).await {
+                                Ok(_) => return Ok(true),
+                                Err(_) => {
+                                    return Err(ConnectError::SendError(
+                                        "重连后发送失败".to_string(),
+                                    ));
                                 }
-                                return false;
-                            }
+                            },
                             Err(_) => {
-                                return false;
+                                self.state.store(CONNECT_STATE_CLOSED, Ordering::Relaxed);
+                                return Err(ConnectError::SendError("重连失败".to_string()));
                             }
                         }
                     }
-                    return false;
+                    return Err(ConnectError::SendError(err.to_string()));
                 }
             }
         }
-        false
+        Err(ConnectError::SendError("发送失败".to_string()))
     }
 
     async fn receive(&mut self) -> Option<Vec<u8>> {
