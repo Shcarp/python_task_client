@@ -1,6 +1,6 @@
 mod inner_websocket;
 use async_trait::async_trait;
-use inner_websocket::InnerWebsocket;
+pub use inner_websocket::InnerWebsocket;
 
 #[derive(Debug, Clone)]
 pub enum Protocol {
@@ -22,19 +22,24 @@ impl Default for Protocol {
 
 #[async_trait]
 pub trait Conn {
+    fn new(config: ConnBuilderConfig) -> Self;
     async fn connect(&mut self) -> bool;
     async fn disconnect(&mut self) -> bool;
     async fn send(&mut self, data: &[u8]) -> bool;
     async fn receive(&mut self) -> Option<Vec<u8>>;
 }
 
-pub struct Connect(Box<dyn Conn + Send + Sync>);
+#[derive(Clone)]
+pub struct Connect<T: Conn + Send + Sync + Clone>(T);
 
-unsafe impl Sync for Connect {}
-unsafe impl Send for Connect {}
+unsafe impl<T: Conn + Send + Sync + Clone> Sync for Connect<T> {}
+unsafe impl<T: Conn + Send + Sync + Clone> Send for Connect<T> {}
 
 #[async_trait]
-impl Conn for Connect {
+impl<T: Conn + Send + Sync + Clone> Conn for Connect<T> {
+    fn new(config: ConnBuilderConfig) -> Self {
+        Connect(T::new(config))
+    }
     async fn connect(&mut self) -> bool {
         return self.0.connect().await;
     }
@@ -49,15 +54,6 @@ impl Conn for Connect {
     }
 }
 
-pub fn make_connect(protocol: Protocol, config: ConnBuilderConfig) -> Connect {
-    let connection: Box<dyn Conn + Send + Sync> = match protocol {
-        Protocol::TCP => Box::new(InnerWebsocket::new(config)),
-        Protocol::UDP => Box::new(InnerWebsocket::new(config)),
-        Protocol::WEBSOCKET => Box::new(InnerWebsocket::new(config)),
-    };
-    return Connect(connection);
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -70,8 +66,14 @@ mod tests {
             port: 9673,
         };
 
-        let mut conn = make_connect(Protocol::WEBSOCKET, connect_opt);
+        let mut conn = Connect::<InnerWebsocket>::new(connect_opt);
         conn.connect().await;
+
+        let mut new_conn = conn.clone();
+
+        tokio::spawn(async move {
+            new_conn.send(&[49]).await;
+        });
 
         loop {
             println!("loop");

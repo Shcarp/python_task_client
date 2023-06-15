@@ -85,20 +85,6 @@ impl Drop for InnerWebsocket {
 
 impl InnerWebsocket {
 
-    pub fn new(target: ConnBuilderConfig) -> Self {
-        InnerWebsocket {
-            host: target.host,
-            port: target.port,
-            protocol: Protocol::WEBSOCKET,
-            state: Arc::new(AtomicU8::new(CONNECT_STATE_INIT)),
-            reader: None,
-            writer: None,
-            last_heartbeat: Arc::new(AtomicU64::new(0)),
-            conn_task: Arc::new(RwLock::new(Vec::new())),
-            recv_channel: None,
-        }
-    }
-
     fn get_state(&self) -> u8 {
         self.state.load(Ordering::Relaxed)
     }
@@ -232,6 +218,20 @@ impl InnerWebsocket {
 
 #[async_trait]
 impl Conn for InnerWebsocket {
+    fn new(target: ConnBuilderConfig) -> Self {
+        InnerWebsocket {
+            host: target.host,
+            port: target.port,
+            protocol: Protocol::WEBSOCKET,
+            state: Arc::new(AtomicU8::new(CONNECT_STATE_INIT)),
+            reader: None,
+            writer: None,
+            last_heartbeat: Arc::new(AtomicU64::new(0)),
+            conn_task: Arc::new(RwLock::new(Vec::new())),
+            recv_channel: None,
+        }
+    }
+
     async fn connect(&mut self) -> bool {
         println!("{:#?}", self);
         let state = Arc::new(AtomicU8::new(CONNECT_STATE_INIT));

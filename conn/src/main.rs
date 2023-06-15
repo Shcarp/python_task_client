@@ -1,4 +1,4 @@
-use conn::{Conn, ConnBuilderConfig, make_connect};
+use conn::{Conn, ConnBuilderConfig, InnerWebsocket, Connect};
 
 #[tokio::main]
 async fn main() {
@@ -7,7 +7,7 @@ async fn main() {
         port: 9673,
     };
 
-    let mut conn = make_connect(conn::Protocol::WEBSOCKET, connect_opt);
+    let mut conn = Connect::<InnerWebsocket>::new(connect_opt);
     conn.connect().await;
 
     loop {
