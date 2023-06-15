@@ -1,12 +1,14 @@
-use conn::{base::{self, Conn}, inner_websocket};
+use conn::{Conn, ConnBuilderConfig, make_connect};
 
 #[tokio::main]
 async fn main() {
-    let connect_opt = base::WebsocketBuilder {
+    let connect_opt = ConnBuilderConfig {
         host: "127.0.0.1".to_string(),
         port: 9673,
     };
-    let mut conn = inner_websocket::Websocket::connect(connect_opt);
+
+    let mut conn = make_connect(conn::Protocol::WEBSOCKET, connect_opt);
+    conn.connect().await;
 
     loop {
         println!("loop");

@@ -8,13 +8,16 @@ use std::{
         RwLock,
     },
 };
-use tokio::sync::{mpsc::{channel, Sender, Receiver}, Mutex};
+use tokio::sync::{
+    mpsc::{channel, Receiver, Sender},
+    Mutex,
+};
 use websocket::{
     sync::{Reader, Writer},
     ClientBuilder, OwnedMessage,
 };
 
-use crate::base::{Conn, Protocol, WebsocketBuilder};
+use crate::{Conn, Protocol, ConnBuilderConfig};
 
 const HEARTBEAT_INTERVAL: u64 = 55 * 1000;
 
@@ -27,19 +30,23 @@ const CONNECT_STATE_CLOSED: u8 = 3;
 const CONNECT_STATE_CLOSING: u8 = 4;
 const CONNECT_STATE_RECONNECT: u8 = 5;
 
-pub struct Websocket {
+#[derive(Default)]
+pub struct InnerWebsocket {
     pub host: String,
     pub port: u16,
     pub protocol: Protocol,
     state: Arc<AtomicU8>,
-    reader: Arc<Mutex<Reader<TcpStream>>>,
-    writer: Arc<Mutex<Writer<TcpStream>>>,
+    reader: Option<Arc<Mutex<Reader<TcpStream>>>>,
+    writer: Option<Arc<Mutex<Writer<TcpStream>>>>,
     last_heartbeat: Arc<AtomicU64>,
     conn_task: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     recv_channel: Option<Receiver<Vec<u8>>>,
 }
 
-impl Clone for Websocket {
+unsafe impl Send for InnerWebsocket {}
+unsafe impl Sync for InnerWebsocket {}
+
+impl Clone for InnerWebsocket {
     fn clone(&self) -> Self {
         Self {
             host: self.host.clone(),
@@ -55,7 +62,7 @@ impl Clone for Websocket {
     }
 }
 
-impl Debug for Websocket {
+impl Debug for InnerWebsocket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Websocket")
             .field("host", &self.host)
@@ -65,7 +72,7 @@ impl Debug for Websocket {
     }
 }
 
-impl Drop for Websocket {
+impl Drop for InnerWebsocket {
     fn drop(&mut self) {
         let mut tasks = self.conn_task.write().unwrap();
         tasks.iter().for_each(|task| {
@@ -76,14 +83,29 @@ impl Drop for Websocket {
     }
 }
 
-impl Websocket {
+impl InnerWebsocket {
+
+    pub fn new(target: ConnBuilderConfig) -> Self {
+        InnerWebsocket {
+            host: target.host,
+            port: target.port,
+            protocol: Protocol::WEBSOCKET,
+            state: Arc::new(AtomicU8::new(CONNECT_STATE_INIT)),
+            reader: None,
+            writer: None,
+            last_heartbeat: Arc::new(AtomicU64::new(0)),
+            conn_task: Arc::new(RwLock::new(Vec::new())),
+            recv_channel: None,
+        }
+    }
+
     fn get_state(&self) -> u8 {
         self.state.load(Ordering::Relaxed)
     }
 
     // 开始发送心跳信息
     fn start_heartbeat(&self) {
-        let heartbeat = self.writer.clone();
+        let heartbeat = self.writer.clone().unwrap();
 
         let mut start_time = chrono::Utc::now().timestamp_millis() as u64;
 
@@ -105,8 +127,8 @@ impl Websocket {
     fn start_reader(&mut self, sender: Sender<Vec<u8>>) {
         let shared_self = Arc::new(Mutex::new(self.clone()));
 
-        let recv_reader = self.reader.clone();
-        let recv_writer = self.writer.clone();
+        let recv_reader = self.reader.clone().unwrap();
+        let recv_writer = self.writer.clone().unwrap();
         let recv_time = self.last_heartbeat.clone();
 
         let recv_task = tokio::spawn(async move {
@@ -193,8 +215,8 @@ impl Websocket {
                     }
                 };
 
-            let mut reader_guard = self.reader.lock().await;
-            let mut writer_guard = self.writer.lock().await;
+            let mut reader_guard = self.reader.as_mut().unwrap().lock().await;
+            let mut writer_guard = self.writer.as_mut().unwrap().lock().await;
 
             let old_reader = std::mem::replace(&mut *reader_guard, reader);
             let old_writer = std::mem::replace(&mut *writer_guard, writer);
@@ -209,11 +231,12 @@ impl Websocket {
 }
 
 #[async_trait]
-impl Conn for Websocket {
-    fn connect(target: WebsocketBuilder) -> Self {
+impl Conn for InnerWebsocket {
+    async fn connect(&mut self) -> bool {
+        println!("{:#?}", self);
         let state = Arc::new(AtomicU8::new(CONNECT_STATE_INIT));
         state.store(CONNECT_STATE_CONNECTING, Ordering::Relaxed);
-        let origin_conn = ClientBuilder::new(&format!("ws://{}:{}", target.host, target.port))
+        let origin_conn = ClientBuilder::new(&format!("ws://{}:{}", self.host, self.port))
             .or_else(|err| {
                 state.store(CONNECT_STATE_CLOSED, Ordering::Relaxed);
                 Err(err)
@@ -231,26 +254,23 @@ impl Conn for Websocket {
 
         let (sender, receiver) = channel::<Vec<u8>>(10);
 
-        let mut ws = Websocket {
-            host: target.host,
-            port: target.port,
-            state: state,
-            protocol: Protocol::WEBSOCKET,
-            reader,
-            writer,
-            last_heartbeat: Arc::new(AtomicU64::new(chrono::Utc::now().timestamp_millis() as u64)),
-            conn_task: Arc::new(RwLock::new(vec![])),
-            recv_channel: Option::Some(receiver),
-        };
-        ws.start_heartbeat();
-        ws.start_reader(sender);
-        ws.state.swap(CONNECT_STATE_CONNECTED, Ordering::Relaxed);
-        ws
+        self.last_heartbeat
+            .store(chrono::Utc::now().timestamp_millis() as u64, Ordering::Relaxed);
+
+        self.reader = Some(reader);
+        self.writer = Some(writer);
+        self.recv_channel = Some(receiver);
+    
+        self.start_heartbeat();
+        self.start_reader(sender);
+        self.state.swap(CONNECT_STATE_CONNECTED, Ordering::Relaxed);
+        // ws
+        false
     }
 
-    async fn disconnect(&self) -> bool {
+    async fn disconnect(&mut self) -> bool {
         self.state.store(CONNECT_STATE_CLOSING, Ordering::Relaxed);
-        let mut send = self.writer.lock().await;
+        let mut send = self.writer.as_mut().unwrap().lock().await;
         let mut tasks = self.conn_task.write().unwrap();
         tasks.iter().for_each(|task| {
             task.abort();
@@ -270,28 +290,31 @@ impl Conn for Websocket {
     }
 
     async fn send(&mut self, data: &[u8]) -> bool {
-        let mut send = self.writer.lock().await;
-        match send.send_message(&websocket::Message::binary(data)) {
-            Ok(_) => true,
-            Err(_) => {
-                drop(send);
-                if self.get_state() == CONNECT_STATE_CONNECTED {
-                    // 重连
-                    match self.reconnect().await {
-                        Ok(_) => {
-                            if self.send(data).await {
-                                return true;
+        if let Some(writer) = self.writer.as_mut() {
+            let mut send = writer.lock().await;
+            match send.send_message(&websocket::Message::binary(data)) {
+                Ok(_) => return true,
+                Err(_) => {
+                    drop(send);
+                    if self.get_state() == CONNECT_STATE_CONNECTED {
+                        // 重连
+                        match self.reconnect().await {
+                            Ok(_) => {
+                                if self.send(data).await {
+                                    return true;
+                                }
+                                return false;
                             }
-                            return false;
-                        }
-                        Err(_) => {
-                            return false;
+                            Err(_) => {
+                                return false;
+                            }
                         }
                     }
+                    return false;
                 }
-                false
             }
         }
+        false
     }
 
     async fn receive(&mut self) -> Option<Vec<u8>> {
