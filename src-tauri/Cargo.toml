@@ -23,6 +23,7 @@ tauri-plugin-store = { git = "https://github.com/tauri-apps/plugins-workspace", 
 websocket = "0.26.5"
 proto = {path="../proto"}
 conn = {path="../conn"}
+promise = {path="../promise"}
 anyhow = "1.0"
 thiserror = "1.0"
 protobuf = "3.2.0"

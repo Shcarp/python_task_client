@@ -71,6 +71,7 @@ dependencies = [
  "conn",
  "dashmap",
  "log 0.4.17",
+ "promise",
  "proto",
  "protobuf",
  "serde",
@@ -2735,6 +2736,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa1fb82fc0c281dd9671101b66b771ebbe1eaf967b96ac8740dcba4b70005ca8"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "promise"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-test",
 ]
 
 [[package]]
