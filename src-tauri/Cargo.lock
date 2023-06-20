@@ -635,6 +635,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "event-emitter",
+ "log 0.4.17",
  "thiserror",
  "tokio",
  "tokio-test",
@@ -996,6 +998,13 @@ checksum = "aa68f1b12764fab894d2755d2518754e71b4fd80ecfb822714a1206c2aab39bf"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "event-emitter"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
 ]
 
 [[package]]

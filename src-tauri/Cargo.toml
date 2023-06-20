@@ -21,9 +21,9 @@ tauri = { version = "1.3.0", features = ["api-all"] }
 tauri-plugin-log = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 tauri-plugin-store = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 websocket = "0.26.5"
-proto = {path="../crate_module/proto"}
-conn = {path="../crate_module/conn"}
-promise = {path="../crate_module/promise"}
+proto = {path="../crate_modules/proto"}
+conn = {path="../crate_modules/conn"}
+promise = {path="../crate_modules/promise"}
 anyhow = "1.0"
 thiserror = "1.0"
 protobuf = "3.2.0"
