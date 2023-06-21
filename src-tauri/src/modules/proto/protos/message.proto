@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package message;
+
+enum DataType {
+  String = 0;
+  Number = 1;
+  Bool = 2;
+  Array = 3;
+  Object = 4;
+  Null = 5;
+}
+
+message Body {
+  optional DataType type = 1;
+  string value = 2;
+}
+
+enum InfoType {
+  SUCCESS = 0;
+  ERROR = 1;
+  WARN = 2;
+}
+
+enum Status {
+  UNKNOW = 0;
+  OK = 200;
+  BAD_REQUEST = 400;
+  NOT_FOUND = 404;
+  INTERNAL_SERVER_ERROR = 500;
+}
+
+message Request {
+  string url = 1;
+  string type = 2;
+  string sequence = 3;
+  float sendTime = 4;
+  Body data = 5;
+}
+
+message Response {
+  string type = 1;
+  string sequence = 2;
+  optional Status status = 3;
+  float sendTime = 4;
+  Body data = 5;
+}
+
+message Push {
+  string type = 1;
+  string event = 2;
+  optional InfoType status = 3;
+  float sendTime = 4;
+  Body data = 5;
+}
