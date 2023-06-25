@@ -1,7 +1,6 @@
 pub mod command;
 mod client;
 mod plugin;
-mod promise;
 use log::LevelFilter;
 use tauri::Wry;
 

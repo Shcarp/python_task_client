@@ -15,6 +15,7 @@ import {
     CLIENT_IDENTIFICATION_PUSH,
     CLIENT_IDENTIFICATION_REQUEST,
     Client,
+    ClientOptions,
     LocalResponse,
     MessageType,
     formatEventName,
@@ -73,7 +74,10 @@ export class WebsocketClient extends EventEmitter implements Client {
     on: Events<WebsocketEvent>["on"] = super.on;
     emit: Events<WebsocketEvent>["emit"] = super.emit;
 
-    address: string = "ws://127.0.0.1:9673";
+    options: ClientOptions =  {
+        ip: "127.0.0.1",
+        port: 9673,
+    };
 
     client_id: string | undefined;
     state: State = State.INIT;
@@ -147,15 +151,15 @@ export class WebsocketClient extends EventEmitter implements Client {
         })();
     }
 
-    async connect(address?: string) {
-        if (address) {
-            this.address = address;
+    async connect(options?: ClientOptions) {
+        if (options) {
+            this.options = options;
         }
         if (this.state === State.CONNECTED) {
             return;
         }
         const res: LocalResponse<string> = await invoke("plugin:connect|connect", {
-            address: this.address,
+            ...this.options,
         });
 
         if (res.code === 0) {

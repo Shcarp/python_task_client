@@ -1,10 +1,11 @@
 use anyhow::Result;
-use proto::message::Body;
-use serde::{ Serialize };
-use std::{fmt::Debug, sync::Mutex};
-use tauri::{plugin::TauriPlugin, Manager, RunEvent, Runtime, State, Window};
+use proto::{message::Body, MessageBody};
 use serde_json::Value;
-use crate::client::{ClientManage, MessageBody};
+use std::fmt::Debug;
+use tauri::{plugin::TauriPlugin, Manager, RunEvent, Runtime, State, Window};
+use tokio::sync::Mutex;
+
+use crate::client::client_manage::ClientManage;
 
 #[derive(Debug, serde::Serialize, Default)]
 struct LResponse {
@@ -30,19 +31,22 @@ impl LResponse {
 
 #[tauri::command]
 async fn connect<R: Runtime>(
-    address: String,
+    ip: String,
+    port: u16,
     win: Window<R>,
     c_manage: State<'_, ClientState<R>>,
 ) -> Result<LResponse, LResponse> {
-    println!("connect: {}", address);
     let res = c_manage
         .client_manage
         .lock()
-        .unwrap()
-        .add_client(win, &address);
+        .await
+        .add_client(win, ip, port)
+        .await;
     match res {
         Ok(id) => Ok(LResponse::default().data(Value::String(id))),
-        Err(err) => Err(LResponse::default().code(1).data(Value::String(err.to_string()))),
+        Err(err) => Err(LResponse::default()
+            .code(1)
+            .data(Value::String(err.to_string()))),
     }
 }
 
@@ -53,14 +57,12 @@ async fn disconnect<R: Runtime>(
     c_manage: State<'_, ClientState<R>>,
 ) -> Result<LResponse, LResponse> {
     println!("disconnect: {}", id);
-    let res = c_manage
-        .client_manage
-        .lock()
-        .unwrap()
-        .remove_client(&win, id);
+    let res = c_manage.client_manage.lock().await.remove_client(&win, id);
     match res {
         Ok(_) => Ok(LResponse::default()),
-        Err(err) => Err(LResponse::default().code(1).data(Value::String(err.to_string()))),
+        Err(err) => Err(LResponse::default()
+            .code(1)
+            .data(Value::String(err.to_string()))),
     }
 }
 
@@ -72,25 +74,22 @@ async fn send<'a, R: Runtime>(
     win: Window<R>,
     c_manage: State<'_, ClientState<R>>,
 ) -> Result<LResponse, LResponse> {
-
-    let client = c_manage.client_manage.lock().unwrap().get_client(id.to_string());
+    let client = c_manage
+        .client_manage
+        .lock()
+        .await
+        .get_client(id.to_string());
     match client {
-        Some(client) => {
+        Some(mut client) => {
             let body = Body::from_serialize(data);
             match client.request(url, body).await {
-                Ok(res) => {
-                    Ok(LResponse::default().data(res))
-                },
-                Err(res) => {
-                    Err(LResponse::default().code(1).data(res))
-                },
+                Ok(res) => Ok(LResponse::default().data(res)),
+                Err(res) => Err(LResponse::default().code(1).data(res)),
             }
         }
-        None => {
-            Err(LResponse::default()
-                .code(1)
-                .data(Value::String("not found client".to_string())))
-        }
+        None => Err(LResponse::default()
+            .code(1)
+            .data(Value::String("not found client".to_string()))),
     }
 }
 
@@ -119,10 +118,10 @@ impl Builder {
             .on_event(|app_handle, event| {
                 if let RunEvent::Exit = event {
                     let manage = app_handle.state::<ClientState<R>>();
-                    let manage =  tauri::async_runtime::block_on(async {
-                       manage.client_manage.lock().unwrap().close_all().await
+                    let manage = tauri::async_runtime::block_on(async {
+                        manage.client_manage.lock().await.close_all().await
                     });
-                    
+
                     if let Err(err) = manage {
                         println!("Failed to close client: {}", err);
                     }

@@ -35,6 +35,7 @@ impl<R: Runtime> ClientManage<R> {
 
     pub async fn add_client(&mut self, win: Window<R>, ip: String, port: u16) -> Result<String> {
         let address = format!("{}:{}", ip.clone(), port);
+        println!("address: {}", address);
         match self.conns.get_mut(&address) {
             Some(conn) => {
                 // 如果同一个窗口对应的address已经存在, 则不再添加
@@ -70,56 +71,49 @@ impl<R: Runtime> ClientManage<R> {
                 conn.connect().await?;
                 let recv_client = self.clients.clone();
                 let conn_address = conn.get_address();
-                let recv = conn.receive();
+                let mut r_conn = conn.clone();
                 // 开启任务读取数据
-                std::thread::spawn(move || {
+                tokio::spawn(async move {
                     loop {
-                        let use_recv = recv.clone();
-                        let use_client = recv_client.clone();
-                        let conn_address = conn_address.clone();
-                        tokio::spawn(async move {
-                            let payload = use_recv.lock().await.recv().await;
-                            match payload {
-                                Some(payload) => {
-                                    let mut index = 0;
-
-                                    // 读取第一个字节
-                                    let first_byte = payload[index];
-                                    // 转换为MessageType
-                                    let first_byte = first_byte as u8;
-                                    index += 1;
-                                    match MessageType::from_u8(first_byte) {
-                                        MessageType::PUSH => {
-                                            match Push::parse_from_bytes(&payload[index..]) {
-                                                Ok(data) => {
-                                                    for client in
-                                                    use_client.write().unwrap().iter_mut()
-                                                    {
-                                                        if client.address == conn_address {
-                                                            client.handle_push(data.clone())
-                                                        }
+                        let payload = r_conn.receive().await;
+                        println!("payload: {:?}", payload);
+                        match payload {
+                            Ok(payload) => {
+                                let mut index = 0;
+                                // 读取第一个字节
+                                let first_byte = payload[index];
+                                // 转换为MessageType
+                                let first_byte = first_byte as u8;
+                                index += 1;
+                                match MessageType::from_u8(first_byte) {
+                                    MessageType::PUSH => {
+                                        match Push::parse_from_bytes(&payload[index..]) {
+                                            Ok(data) => {
+                                                for client in recv_client.write().unwrap().iter_mut()
+                                                {
+                                                    if client.address == conn_address {
+                                                        client.handle_push(data.clone())
                                                     }
                                                 }
-                                                Err(_) => {
-                                                    error!("parse push error");
-                                                    // continue;
-                                                }
+                                            }
+                                            Err(_) => {
+                                                error!("parse push error");
+                                                // continue;
                                             }
                                         }
-                                        MessageType::REQUEST => {}
-                                        MessageType::RESPONSE => {
-                                            println!("response")
-                                        }
-                                        MessageType::OTHER => {}
-                                    };
-                                }
-                                None => {
-                                    error!("receive payload is None");
-                                    // continue;
-                                }
+                                    }
+                                    MessageType::REQUEST => {}
+                                    MessageType::RESPONSE => {
+                                        println!("response")
+                                    }
+                                    MessageType::OTHER => {}
+                                };
                             }
-                            // }
-                        });
+                            Err(_) => {
+                                error!("receive payload is None");
+                                // continue;
+                            }
+                        }
                     }
                 });
 
