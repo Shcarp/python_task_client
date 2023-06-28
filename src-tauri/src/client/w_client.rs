@@ -16,12 +16,23 @@ use tauri::{Runtime, Window};
 use uuid::Uuid;
 
 use crate::client::utils::{
-    CLIENT_IDENTIFICATION, CLIENT_IDENTIFICATION_REQUEST, CLIENT_IDENTIFICATION_RESPONSE,
+    CLIENT_IDENTIFICATION, CLIENT_IDENTIFICATION_REQUEST, CLIENT_IDENTIFICATION_RESPONSE, CLIENT_IDENTIFICATION_PUSH, CLIENT_IDENTIFICATION_ERROR,
 };
 use log::{error, info};
 
 use crate::wrap_event_err;
 
+#[derive(Clone)]
+pub enum RecvData {
+    Error(String),
+    Push(Push),
+    Request(Request),
+    Response(Response),
+}
+
+unsafe impl Send for RecvData {}
+unsafe impl Sync for RecvData {}
+    
 pub struct WClient<R: Runtime> {
     pub ip: String,
     pub port: u16,
@@ -31,6 +42,9 @@ pub struct WClient<R: Runtime> {
     pub conn: Connection,
     pub sequences: Arc<DashMap<String, Promise<Body>>>,
 }
+
+unsafe impl<R: Runtime> Send for WClient<R> {}
+unsafe impl<R: Runtime> Sync for WClient<R> {}
 
 impl<R: Runtime> Clone for WClient<R> {
     fn clone(&self) -> Self {
@@ -60,7 +74,6 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub async fn request(&mut self, url: String, data: Body) -> Result<Value, Value> {
-        println!("request: {}", url);
         let mut promise = Promise::<Body>::new();
         let sequence = Uuid::new_v4().to_string();
 
@@ -79,7 +92,6 @@ impl<R: Runtime> WClient<R> {
         match request.write_to_bytes() {
             Ok(mut data) => {
                 data.insert(0, MessageType::REQUEST.into());
-
                 match self.conn.send(&data).await {
                     Ok(_) => {
                         wrap_event_err!(self.window, CLIENT_IDENTIFICATION_REQUEST, "success");
@@ -120,7 +132,6 @@ impl<R: Runtime> WClient<R> {
             let mut promise = promise.1;
             match response.status {
                 Some(status) => {
-                    println!("response status: {:?}", status);
                     if status != MessageState::OK.into() {
                         match response.data.0 {
                             Some(data) => promise.reject(*data).await.unwrap(),
@@ -145,9 +156,30 @@ impl<R: Runtime> WClient<R> {
     }
 
     pub fn handle_push(&mut self, data: Push) {
-        println!("push: {:?}", data);
-        wrap_event_err!(self.window, "push", data);
+        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_PUSH, data);
     }
 
-    pub fn handle_error(&mut self, data: &[u8]) {}
+    pub fn handle_error(&mut self, data: String) {
+        wrap_event_err!(self.window, CLIENT_IDENTIFICATION_ERROR, data)
+    }
+
+    pub fn handle_message(&mut self, data: RecvData) {
+        let mut this = self.clone();
+        tokio::spawn(async move {
+            match data {
+                RecvData::Push(data) => {
+                    this.handle_push(data);
+                },
+                RecvData::Response(data) => {
+                    this.handle_response(data).await;
+                },
+                RecvData::Error(data) => {
+                    this.handle_error(data);
+                },
+                _ => {
+                    info!("handle message");
+                }
+            }
+        });
+    }
 }

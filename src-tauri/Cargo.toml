@@ -22,7 +22,7 @@ tauri-plugin-log = { git = "https://github.com/tauri-apps/plugins-workspace", br
 tauri-plugin-store = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 websocket = "0.26.5"
 proto = {path="./src/modules/proto"}
-conn = {path="../crate_modules/conn"}
+conn = {path="../crate_modules/rs-connections"}
 promise = {path="../crate_modules/promise"}
 anyhow = "1.0"
 thiserror = "1.0"

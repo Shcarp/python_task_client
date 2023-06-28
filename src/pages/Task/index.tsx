@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Col, Empty, Form, Input, Row, Select, Space, Statistic, message } from "antd";
 import { IRef as AddTaskRef, TaskAction } from "./components/AddTask";
 import { IRef as AddNameRef, AddWxName } from "./components/AddWxName";
-import { debounce, set } from "lodash";
+import { debounce } from "lodash";
 import { Task, selectOptions } from "./type";
 import Message from "./components/Message";
 import { TaskList } from "./components/List";

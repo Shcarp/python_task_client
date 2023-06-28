@@ -1,13 +1,19 @@
 use anyhow::Result;
-use conn::{ConnBuilder, ConnBuilderConfig, Connection, Protocol};
+use conn::{ConnBuilder, ConnBuilderConfig, ConnectError, Connection, Protocol};
 use dashmap::DashMap;
-use proto::{message::Push, MessageType};
+use proto::{
+    message::{Push, Request, Response},
+    MessageType,
+};
 use protobuf::Message;
 use std::sync::{Arc, RwLock};
 use tauri::{Runtime, Window};
 
 use crate::{
-    client::utils::{CLIENT_IDENTIFICATION, CLIENT_IDENTIFICATION_CLOSE},
+    client::{
+        utils::{CLIENT_IDENTIFICATION, CLIENT_IDENTIFICATION_CLOSE},
+        w_client::RecvData,
+    },
     wrap_event_err,
 };
 use log::error;
@@ -35,7 +41,6 @@ impl<R: Runtime> ClientManage<R> {
 
     pub async fn add_client(&mut self, win: Window<R>, ip: String, port: u16) -> Result<String> {
         let address = format!("{}:{}", ip.clone(), port);
-        println!("address: {}", address);
         match self.conns.get_mut(&address) {
             Some(conn) => {
                 // 如果同一个窗口对应的address已经存在, 则不再添加
@@ -53,30 +58,43 @@ impl<R: Runtime> ClientManage<R> {
             }
             None => {
                 let all_client = self.clients.clone();
+                let addr = address.clone();
                 let connect_opt = ConnBuilderConfig {
                     host: ip.clone(),
                     port: port,
                     protocol: Protocol::WEBSOCKET,
-                    error_callback: Box::new(move |ERR: String| {
-                        for client in all_client.read().unwrap().iter() {
-                            wrap_event_err!(
-                                client.window,
-                                CLIENT_IDENTIFICATION_CLOSE,
-                                ERR.clone()
-                            );
+                    error_callback: Box::new(move |err: ConnectError| {
+                        let err = match err {
+                            ConnectError::Disconnect(err)
+                            | ConnectError::SendError(err)
+                            | ConnectError::ConnectionError(err)
+                            | ConnectError::RecvError(err)
+                            | ConnectError::Unknown(err)
+                            | ConnectError::ConnectionClosed(err) => err,
+                            ConnectError::Connection(err) => err.to_string(),
+                            ConnectError::ConnectionTimeout => String::from("connection timeout"),
+                            ConnectError::ConnectionRefused => String::from("connection refused"),
+                            ConnectError::ConnectionReset => String::from("connection reset"),
+                            ConnectError::Reconnecting => String::from("connection reconnecting"),
+                            ConnectError::ReconnectFailed => {
+                                String::from("connection reconnect failed")
+                            }
+                        };
+                        for client in all_client.write().unwrap().iter_mut() {
+                            if client.address == addr {
+                                client.handle_message(RecvData::Error(err.clone()));
+                            }
                         }
                     }),
                 };
                 let mut conn = ConnBuilder::new(connect_opt).build();
                 conn.connect().await?;
                 let recv_client = self.clients.clone();
-                let conn_address = conn.get_address();
                 let mut r_conn = conn.clone();
                 // 开启任务读取数据
                 tokio::spawn(async move {
                     loop {
                         let payload = r_conn.receive().await;
-                        println!("payload: {:?}", payload);
                         match payload {
                             Ok(payload) => {
                                 let mut index = 0;
@@ -89,29 +107,62 @@ impl<R: Runtime> ClientManage<R> {
                                     MessageType::PUSH => {
                                         match Push::parse_from_bytes(&payload[index..]) {
                                             Ok(data) => {
-                                                for client in recv_client.write().unwrap().iter_mut()
+                                                for client in
+                                                    recv_client.write().unwrap().iter_mut()
                                                 {
-                                                    if client.address == conn_address {
-                                                        client.handle_push(data.clone())
+                                                    if &client.address == &r_conn.get_address() {
+                                                        client.handle_message(RecvData::Push(
+                                                            data.clone(),
+                                                        ));
                                                     }
                                                 }
                                             }
                                             Err(_) => {
                                                 error!("parse push error");
-                                                // continue;
                                             }
                                         }
                                     }
-                                    MessageType::REQUEST => {}
+                                    MessageType::REQUEST => {
+                                        match Request::parse_from_bytes(&payload[index..]) {
+                                            Ok(data) => {
+                                                for client in
+                                                    recv_client.write().unwrap().iter_mut()
+                                                {
+                                                    if &client.address == &r_conn.get_address() {
+                                                        client.handle_message(RecvData::Request(
+                                                            data.clone(),
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            Err(_) => {
+                                                error!("parse request error");
+                                            }
+                                        }
+                                    }
                                     MessageType::RESPONSE => {
-                                        println!("response")
+                                        match Response::parse_from_bytes(&payload[index..]) {
+                                            Ok(data) => {
+                                                for client in
+                                                    recv_client.write().unwrap().iter_mut()
+                                                {
+                                                    if &client.address == &r_conn.get_address() {
+                                                        client.handle_message(RecvData::Response(
+                                                            data.clone(),
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            Err(_) => {
+                                                error!("parse response error");
+                                            }
+                                        }
                                     }
                                     MessageType::OTHER => {}
                                 };
                             }
                             Err(_) => {
                                 error!("receive payload is None");
-                                // continue;
                             }
                         }
                     }
@@ -126,7 +177,7 @@ impl<R: Runtime> ClientManage<R> {
                     .map_err(|error| ConnError::LockError(error.to_string()))?
                     .push(client.clone());
                 self.w_c.insert(win_label, client.clone());
-                self.conns.insert(address.to_string(), conn);
+                self.conns.insert(address.to_owned(), conn);
                 Ok(client_id)
             }
         }

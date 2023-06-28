@@ -12,6 +12,7 @@ import { dialog, invoke } from "@tauri-apps/api";
 import {
     CLIENT_IDENTIFICATION_CLOSE,
     CLIENT_IDENTIFICATION_CONNECT_ERROR,
+    CLIENT_IDENTIFICATION_ERROR,
     CLIENT_IDENTIFICATION_PUSH,
     CLIENT_IDENTIFICATION_REQUEST,
     Client,
@@ -94,6 +95,13 @@ export class WebsocketClient extends EventEmitter implements Client {
             cb: (message: Event<EventPayload<any>>) => {
                 this.emit(message.payload?.event, message.payload);
             },
+        },
+        {
+            name: CLIENT_IDENTIFICATION_ERROR,
+            cb: async (message) => {
+                await dialog.message(message);
+                appWindow.close();
+            }
         },
         {
             name: CLIENT_IDENTIFICATION_CONNECT_ERROR,
