@@ -3,6 +3,7 @@ import React from "react";
 import { lazy } from "react";
 import { NonIndexRouteObject, createBrowserRouter } from "react-router-dom";
 
+const Test = lazy(() => import("../pages/Test"));
 const Home = lazy(() => import("../pages/Home"));
 const NotFound = lazy(() => import("../components/NotFound"));
 const Task = lazy(() => import("../pages/Task"));
@@ -19,7 +20,7 @@ export interface RouterMapItem extends NonIndexRouteObject {
 export const routerMap: RouterMapItem[] = [
     {
         path: "/",
-        element: <Home />,
+        element: <Test />,
     },
     {
         path: "/task",
