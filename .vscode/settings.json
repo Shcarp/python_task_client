@@ -5,6 +5,7 @@
     "rust-analyzer.showUnlinkedFileNotification": false,
     "cSpell.words": [
         "dashmap",
+        "fullscreen",
         "proto",
         "protobuf",
         "tauri",

@@ -1,11 +1,13 @@
-pub mod command;
+mod command;
+mod setup;
 mod client;
 mod plugin;
 use log::LevelFilter;
 use tauri::Wry;
 
 use command::generate_unique_message_id;
-use tauri_plugin_log::{LogTarget};
+
+use tauri_plugin_log::LogTarget;
 
 enum LogLevel {
     // 定义你的日志级别
@@ -40,7 +42,8 @@ impl NApp {
             LogTarget::Webview,
         ]).level(level_filter).build())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(plugin::connect::Builder::default().build());
+        .plugin(plugin::connect::Builder::default().build())
+        .setup(setup::init);
         NApp { builder }
     }
 

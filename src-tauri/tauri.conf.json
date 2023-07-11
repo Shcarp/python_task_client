@@ -11,8 +11,14 @@
     "version": "0.0.0"
   },
   "tauri": {
+    
     "allowlist": {
       "all": true,
+      "http": {
+        "all": true,
+        "request": true,
+        "scope": ["https://**","http://**"]
+      },
       "dialog": {
         "all": true,
         "ask": true,
@@ -41,13 +47,15 @@
     "security": {
       "csp": null
     },
+    "macOSPrivateApi": true,
     "windows": [
       {
         "fullscreen": false,
         "resizable": true,
         "title": "message",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "transparent": true
       }
     ]
   }

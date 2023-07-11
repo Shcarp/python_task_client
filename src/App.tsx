@@ -9,12 +9,13 @@ import "antd/dist/reset.css";
 import "./App.less";
 
 const App = () => {
-
     return (
         <ConfigProvider locale={zhCN}>
-            <Suspense fallback={<Loading />}>
-                <RouterProvider router={router} fallbackElement={<Loading />} />
-            </Suspense>
+            <div className="body">
+                <Suspense fallback={<Loading />}>
+                    <RouterProvider router={router} fallbackElement={<Loading />} />
+                </Suspense>
+            </div>
         </ConfigProvider>
     );
 };
