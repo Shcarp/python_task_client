@@ -15,9 +15,14 @@ const Index = () => {
         console.log(res);
     };
 
+    const handleLogin = async () => {
+        window.location.href = "/user-center/login";
+    }
+
     return (
         <div>
             <Button onClick={() => handleClick()}>请求</Button>
+            <Button onClick={() => handleLogin()}>Open Login</Button>
         </div>
     );
 };

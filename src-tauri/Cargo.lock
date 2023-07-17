@@ -68,14 +68,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "conn",
  "dashmap",
  "log 0.4.17",
- "promise",
  "proto",
  "protobuf",
+ "rs-connections",
  "serde",
  "serde_json",
+ "simulate-promise",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
@@ -647,20 +647,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conn"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "event-emitter",
- "log 0.4.17",
- "thiserror",
- "tokio",
- "tokio-test",
- "websocket",
-]
-
-[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1028,13 +1014,6 @@ checksum = "aa68f1b12764fab894d2755d2518754e71b4fd80ecfb822714a1206c2aab39bf"
 dependencies = [
  "cc",
  "libc",
-]
-
-[[package]]
-name = "event-emitter"
-version = "0.1.0"
-dependencies = [
- "dashmap",
 ]
 
 [[package]]
@@ -2805,15 +2784,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "promise"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "tokio",
- "tokio-test",
-]
-
-[[package]]
 name = "proto"
 version = "0.1.0"
 dependencies = [
@@ -3166,6 +3136,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rs-connections"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cea160e919be49207d8696c26e9ce3ed47b08570bec8a25081edb1d14b404ed7"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "log 0.4.17",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "websocket",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3512,6 +3497,17 @@ name = "simd-adler32"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "238abfbb77c1915110ad968465608b68e869e0772622c9656714e73e5a1a522f"
+
+[[package]]
+name = "simulate-promise"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90862dec8cf3d3bc09949495edf1a75ce4878f13bee8c56cb65256e238a45acc"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-test",
+]
 
 [[package]]
 name = "siphasher"

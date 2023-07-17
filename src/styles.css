@@ -14,9 +14,26 @@
   -webkit-text-size-adjust: 100%;
 }
 
+[data-tauri-drag-region] {
+  cursor: move; /* Not all browsers support "grab" */
+  cursor: grab;
+  cursor: -webkit-grab;
+}
+
+[data-tauri-drag-region]:active {
+  cursor: grabbing;
+  cursor: -webkit-grabbing;
+}
+
 body {
+  height: 100%;
+  width: 100%;
   margin: 0;
   padding: 0;
+  user-select: none;
+  /* -webkit-user-drag: none; */
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
 }
 
 

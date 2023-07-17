@@ -1,5 +1,5 @@
 use anyhow::Result;
-use conn::{ConnBuilder, ConnBuilderConfig, ConnectError, Connection, Protocol};
+use rs_connections::{ConnBuilder, ConnBuilderConfig, ConnectError, Connection, Protocol};
 use dashmap::DashMap;
 use proto::{
     message::{Push, Request, Response},
@@ -62,6 +62,7 @@ impl<R: Runtime> ClientManage<R> {
                 let connect_opt = ConnBuilderConfig {
                     host: ip.clone(),
                     port: port,
+                    heartbeat_time: None,
                     protocol: Protocol::WEBSOCKET,
                     error_callback: Box::new(move |err: ConnectError| {
                         let err = match err {

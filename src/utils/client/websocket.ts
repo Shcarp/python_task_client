@@ -24,7 +24,7 @@ import {
 import { appWindow } from "@tauri-apps/api/window";
 import { Event } from "@tauri-apps/api/event";
 import { Events } from "..";
-import { Task } from "../../pages/Task/type";
+// import { Task } from "../../pages/Task/type";
 
 enum PushStatus {
     SUCCESS = 0,
@@ -60,7 +60,7 @@ export type PushData<T> = {
 }
 
 export type TaskListValue = {
-    list: Task[];
+    // list: Task[];
     running_count: number;
 };
 
@@ -133,6 +133,7 @@ export class WebsocketClient extends EventEmitter implements Client {
 
     constructor() {
         super();
+        appWindow.setTitle("PythonTask - Execute (unconnected)");
     }
 
     start() {
@@ -166,6 +167,7 @@ export class WebsocketClient extends EventEmitter implements Client {
         if (this.state === State.CONNECTED) {
             return;
         }
+        appWindow.setTitle("PythonTask - Execute (connecting)");
         const res: LocalResponse<string> = await invoke("plugin:connect|connect", {
             ...this.options,
         });
@@ -176,6 +178,7 @@ export class WebsocketClient extends EventEmitter implements Client {
         }
 
         this.emit("connect");
+        appWindow.setTitle("PythonTask - Execute (connected)");
     }
 
     async disconnect() {

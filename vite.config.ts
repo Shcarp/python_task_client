@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import svgr from "vite-plugin-svgr";
+import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-    plugins: [react()],
+    plugins: [react(), svgr()],
 
     // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
     // prevent vite from obscuring rust errors
@@ -15,6 +17,11 @@ export default defineConfig(async () => ({
             less: {
                 charset: false,
             },
+        },
+    },
+    resolve: {
+        alias: {
+            "@assets": path.join(__dirname, "src/assets"),
         },
     },
     server: {

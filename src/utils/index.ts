@@ -18,3 +18,6 @@ export type Events<T extends EventsDefinition> = EventsWithoutAny<T> & {
 	on(event: string, listener: (...args: any[]) => void): any;
 	emit(event: string, ...args: any[]): any;
 };
+
+
+

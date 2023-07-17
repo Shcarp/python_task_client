@@ -9,6 +9,8 @@ use command::generate_unique_message_id;
 
 use tauri_plugin_log::LogTarget;
 
+use crate::command::create_file;
+
 enum LogLevel {
     // 定义你的日志级别
     Info,
@@ -35,7 +37,7 @@ impl NApp {
         let log_level = LogLevel::Info;
         let level_filter: LevelFilter = log_level.into();
         let builder = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![generate_unique_message_id])
+        .invoke_handler(tauri::generate_handler![generate_unique_message_id, create_file])
         .plugin(tauri_plugin_log::Builder::default().targets([
             LogTarget::LogDir,
             LogTarget::Stdout,

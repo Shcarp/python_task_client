@@ -1,0 +1,59 @@
+.login-color-default {
+    background-color: #fff;
+}
+
+.login-color-success {
+    background-color: #edf2f5;
+}
+
+
+.login-username {
+    border-radius: 5px;
+    margin-bottom: 5px;
+    display: flex;
+    
+}
+.login-password {
+    border-radius: 5px;
+    display: flex;
+    margin-bottom: 10px;
+}
+
+.login-description {
+    margin-bottom: 2vh;
+    & span:nth-child(1){
+        display: inline-block;
+        font-size: 36px;
+    }
+    & span:nth-child(3){
+        font-size: 6px;
+        color: #b6bac0;
+        margin:0 auto
+    }
+}
+
+
+.login-remember {
+    font-size: 1vw;
+    color: #b6bac0;
+}
+
+.login-submit {
+    :global {
+        .ant-btn {
+            border: none;
+        }
+    }
+}
+
+.login-forget {
+    margin-top: 2vh;
+    display: flex;
+    justify-content: space-between;
+    :global {
+        .ant-btn-link {
+            border: none;
+            padding-left: 0;
+        }
+    }
+}

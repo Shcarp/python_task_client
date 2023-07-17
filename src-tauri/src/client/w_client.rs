@@ -3,9 +3,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use conn::Connection;
+use rs_connections::Connection;
 use dashmap::DashMap;
-use promise::{self, Promise, PromiseResult};
+use simulate_promise::{self, Promise, PromiseResult};
 use proto::{
     message::{Body, Push, Request, Response, Status as MessageState},
     MessageBody, MessageType,
