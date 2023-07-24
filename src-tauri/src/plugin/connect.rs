@@ -119,7 +119,7 @@ impl Builder {
                 if let RunEvent::Exit = event {
                     let manage = app_handle.state::<ClientState<R>>();
                     let manage = tauri::async_runtime::block_on(async {
-                        manage.client_manage.lock().await.close_all().await
+                        manage.client_manage.lock().await.close_all()
                     });
 
                     if let Err(err) = manage {

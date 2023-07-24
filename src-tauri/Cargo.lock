@@ -3137,9 +3137,9 @@ dependencies = [
 
 [[package]]
 name = "rs-connections"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cea160e919be49207d8696c26e9ce3ed47b08570bec8a25081edb1d14b404ed7"
+checksum = "9b4fd0a2dcc7a0d677daae1ca4bff4156c56e42d416f9ba3bfe2188ae9c463dc"
 dependencies = [
  "async-trait",
  "chrono",

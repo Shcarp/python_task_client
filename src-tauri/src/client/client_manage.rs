@@ -1,11 +1,11 @@
 use anyhow::Result;
-use rs_connections::{ConnBuilder, ConnBuilderConfig, ConnectError, Connection, Protocol};
 use dashmap::DashMap;
 use proto::{
     message::{Push, Request, Response},
     MessageType,
 };
 use protobuf::Message;
+use rs_connections::{ConnBuilder, ConnBuilderConfig, ConnectError, Connection, Protocol};
 use std::sync::{Arc, RwLock};
 use tauri::{Runtime, Window};
 
@@ -14,7 +14,7 @@ use crate::{
         utils::{CLIENT_IDENTIFICATION, CLIENT_IDENTIFICATION_CLOSE},
         w_client::RecvData,
     },
-    wrap_event_err,
+    handle_message, wrap_event_err,
 };
 use log::error;
 
@@ -106,58 +106,31 @@ impl<R: Runtime> ClientManage<R> {
                                 index += 1;
                                 match MessageType::from_u8(first_byte) {
                                     MessageType::PUSH => {
-                                        match Push::parse_from_bytes(&payload[index..]) {
-                                            Ok(data) => {
-                                                for client in
-                                                    recv_client.write().unwrap().iter_mut()
-                                                {
-                                                    if &client.address == &r_conn.get_address() {
-                                                        client.handle_message(RecvData::Push(
-                                                            data.clone(),
-                                                        ));
-                                                    }
-                                                }
-                                            }
-                                            Err(_) => {
-                                                error!("parse push error");
-                                            }
-                                        }
+                                        handle_message!(
+                                            payload,
+                                            index,
+                                            Push,
+                                            recv_client,
+                                            &r_conn.get_address()
+                                        )
                                     }
                                     MessageType::REQUEST => {
-                                        match Request::parse_from_bytes(&payload[index..]) {
-                                            Ok(data) => {
-                                                for client in
-                                                    recv_client.write().unwrap().iter_mut()
-                                                {
-                                                    if &client.address == &r_conn.get_address() {
-                                                        client.handle_message(RecvData::Request(
-                                                            data.clone(),
-                                                        ));
-                                                    }
-                                                }
-                                            }
-                                            Err(_) => {
-                                                error!("parse request error");
-                                            }
-                                        }
+                                        handle_message!(
+                                            payload,
+                                            index,
+                                            Request,
+                                            recv_client,
+                                            &r_conn.get_address()
+                                        )
                                     }
                                     MessageType::RESPONSE => {
-                                        match Response::parse_from_bytes(&payload[index..]) {
-                                            Ok(data) => {
-                                                for client in
-                                                    recv_client.write().unwrap().iter_mut()
-                                                {
-                                                    if &client.address == &r_conn.get_address() {
-                                                        client.handle_message(RecvData::Response(
-                                                            data.clone(),
-                                                        ));
-                                                    }
-                                                }
-                                            }
-                                            Err(_) => {
-                                                error!("parse response error");
-                                            }
-                                        }
+                                        handle_message!(
+                                            payload,
+                                            index,
+                                            Response,
+                                            recv_client,
+                                            &r_conn.get_address()
+                                        )
                                     }
                                     MessageType::OTHER => {}
                                 };
@@ -230,7 +203,7 @@ impl<R: Runtime> ClientManage<R> {
         wrap_event_err!(win, CLIENT_IDENTIFICATION_CLOSE, "close");
         Ok(())
     }
-    pub async fn close_all(&mut self) -> Result<()> {
+    pub fn close_all(&mut self) -> Result<()> {
         let mut clients = self.clients.write().unwrap();
         self.conns.clear();
         clients.clear();
