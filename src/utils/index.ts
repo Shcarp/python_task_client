@@ -16,6 +16,7 @@ export type EventsWithoutAny<T extends { [event: string]: (...args: any[]) => vo
 
 export type Events<T extends EventsDefinition> = EventsWithoutAny<T> & {
 	on(event: string, listener: (...args: any[]) => void): any;
+	off(event: string, listener: (...args: any[]) => void): any;
 	emit(event: string, ...args: any[]): any;
 };
 

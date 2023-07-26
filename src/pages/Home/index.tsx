@@ -1,7 +1,10 @@
+import { client } from "../../utils/client/websocket";
 import { Left } from "./components/Left";
 import { Right } from "./components/Right";
 
 import styles from  "./index.module.less";
+
+client.connect();
 
 const Home = () => {
     return (

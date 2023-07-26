@@ -5,7 +5,7 @@ use proto::{
     MessageType,
 };
 use protobuf::Message;
-use rs_connections::{ConnBuilder, ConnBuilderConfig, ConnectError, Connection, Protocol};
+use rs_connections::{ConnBuilder, ConnBuilderConfig, Protocol, Conn, ConnectionInterface, ConnectionBaseInterface, ERROR_EVENT, Emitter, EventHandler, ConnectError};
 use std::sync::{Arc, RwLock};
 use tauri::{Runtime, Window};
 
@@ -23,8 +23,8 @@ use super::{error::ConnError, w_client::WClient};
 #[derive(Default)]
 pub struct ClientManage<R: Runtime> {
     clients: Arc<RwLock<Vec<WClient<R>>>>,
-    w_c: DashMap<String, WClient<R>>,
-    conns: Arc<DashMap<String, Connection>>,
+    label_client: DashMap<String, WClient<R>>,
+    conns: Arc<DashMap<String, Conn>>,
 }
 
 unsafe impl<R: Runtime> Send for ClientManage<R> {}
@@ -34,7 +34,7 @@ impl<R: Runtime> ClientManage<R> {
     pub fn new() -> Self {
         Self {
             clients: Arc::new(RwLock::new(Vec::new())),
-            w_c: DashMap::new(),
+            label_client: DashMap::new(),
             conns: Arc::new(DashMap::new()),
         }
     }
@@ -44,7 +44,7 @@ impl<R: Runtime> ClientManage<R> {
         match self.conns.get_mut(&address) {
             Some(conn) => {
                 // 如果同一个窗口对应的address已经存在, 则不再添加
-                if let Some(client) = self.w_c.get(win.label()) {
+                if let Some(client) = self.label_client.get(win.label()) {
                     return Ok(client.client_id.clone());
                 }
                 let client = WClient::build(win, ip, port, conn.clone());
@@ -64,31 +64,19 @@ impl<R: Runtime> ClientManage<R> {
                     port: port,
                     heartbeat_time: None,
                     protocol: Protocol::WEBSOCKET,
-                    error_callback: Box::new(move |err: ConnectError| {
-                        let err = match err {
-                            ConnectError::Disconnect(err)
-                            | ConnectError::SendError(err)
-                            | ConnectError::ConnectionError(err)
-                            | ConnectError::RecvError(err)
-                            | ConnectError::Unknown(err)
-                            | ConnectError::ConnectionClosed(err) => err,
-                            ConnectError::Connection(err) => err.to_string(),
-                            ConnectError::ConnectionTimeout => String::from("connection timeout"),
-                            ConnectError::ConnectionRefused => String::from("connection refused"),
-                            ConnectError::ConnectionReset => String::from("connection reset"),
-                            ConnectError::Reconnecting => String::from("connection reconnecting"),
-                            ConnectError::ReconnectFailed => {
-                                String::from("connection reconnect failed")
-                            }
-                        };
-                        for client in all_client.write().unwrap().iter_mut() {
-                            if client.address == addr {
-                                client.handle_message(RecvData::Error(err.clone()));
-                            }
-                        }
-                    }),
                 };
                 let mut conn = ConnBuilder::new(connect_opt).build();
+
+                let handle_error = EventHandler::new(Box::new(move |data: ConnectError| {
+                    for client in all_client.write().unwrap().iter_mut() {
+                        if client.address == addr {
+                            client.handle_message(RecvData::Error(data.to_string()));
+                        }
+                    }
+                }));
+
+                conn.on(ERROR_EVENT, Arc::new(handle_error.clone()));
+
                 conn.connect().await?;
                 let recv_client = self.clients.clone();
                 let mut r_conn = conn.clone();
@@ -150,7 +138,7 @@ impl<R: Runtime> ClientManage<R> {
                     .write()
                     .map_err(|error| ConnError::LockError(error.to_string()))?
                     .push(client.clone());
-                self.w_c.insert(win_label, client.clone());
+                self.label_client.insert(win_label, client.clone());
                 self.conns.insert(address.to_owned(), conn);
                 Ok(client_id)
             }

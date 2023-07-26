@@ -66,13 +66,16 @@ export type TaskListValue = {
 
 type WebsocketEvent = {
     ["block_num"]: (data: PushData<number>) => void;
-    ["connect"]: () => void;
     ["wechat-name/add"]: (data: PushData<string[]>) => void;
     ["task-list/update"]: (body: TaskListValue) => void;
+    ["connect"]: () => void;
+    ['error']: (reason: string) => void;
+    ['close']: () => void;
 };
 
 export class WebsocketClient extends EventEmitter implements Client {
     on: Events<WebsocketEvent>["on"] = super.on;
+    off: Events<WebsocketEvent>["off"] = super.off;
     emit: Events<WebsocketEvent>["emit"] = super.emit;
 
     options: ClientOptions =  {
@@ -85,12 +88,6 @@ export class WebsocketClient extends EventEmitter implements Client {
 
     connSystemEvent: SystemEvent[] = [
         {
-            name: CLIENT_IDENTIFICATION_REQUEST,
-            cb: (message) => {
-                // console.log("send_success", message);
-            },
-        },
-        {
             name: CLIENT_IDENTIFICATION_PUSH,
             cb: (message: Event<EventPayload<any>>) => {
                 this.emit(message.payload?.event, message.payload);
@@ -99,32 +96,14 @@ export class WebsocketClient extends EventEmitter implements Client {
         {
             name: CLIENT_IDENTIFICATION_ERROR,
             cb: async (message) => {
-                await dialog.message(message);
-                appWindow.close();
+                this.emit("error", message.payload);
             }
-        },
-        {
-            name: CLIENT_IDENTIFICATION_CONNECT_ERROR,
-            cb: async () => {
-                const ds = await dialog.confirm("连接已断开, 是否重连?");
-                if (ds) {
-                    try {
-                        await this.connect();
-                        this.state = State.CONNECTED;
-                    } catch (error) {
-                        await dialog.message("连接失败");
-                        appWindow.close();
-                    }
-                } else {
-                    appWindow.close();
-                }
-            },
         },
         {
             name: CLIENT_IDENTIFICATION_CLOSE,
             cb: async () => {
-                console.log("close")
                 this.state = State.CLOSED;
+                this.emit("close");
             }
         }
     ];

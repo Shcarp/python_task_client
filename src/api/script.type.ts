@@ -56,7 +56,7 @@ export interface ScriptDetail {
     favorites: number;
     isFavorite: number;
     isLike: number;
-    item: ScriptListItem[];
+    items: ScriptListItem[];
 }
 
 export interface CreateScriptParams {

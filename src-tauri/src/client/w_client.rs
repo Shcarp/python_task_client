@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rs_connections::Connection;
+use rs_connections::{Conn, ConnectionInterface};
 use dashmap::DashMap;
 use simulate_promise::{self, Promise, PromiseResult};
 use proto::{
@@ -39,7 +39,7 @@ pub struct WClient<R: Runtime> {
     pub address: String,
     pub client_id: String,
     pub window: Window<R>,
-    pub conn: Connection,
+    pub conn: Conn,
     pub sequences: Arc<DashMap<String, Promise<Body>>>,
 }
 
@@ -61,7 +61,7 @@ impl<R: Runtime> Clone for WClient<R> {
 }
 
 impl<R: Runtime> WClient<R> {
-    pub fn build(window: Window<R>, ip: String, port: u16, conn: Connection) -> Self {
+    pub fn build(window: Window<R>, ip: String, port: u16, conn: Conn) -> Self {
         Self {
             client_id: Uuid::new_v4().to_string(),
             window,

@@ -10,7 +10,7 @@ export async function getScriptList(params: GetScriptListParams) {
 }
 
 export async function getScriptDetail(id: string) {
-    const res = await http.get<ScriptDetail>(`/v1/script/detail`, {
+    const res = await http.get<ResponseData<ScriptDetail>>(`/v1/script/detail`, {
         params: {
             scriptUid: id,
         },

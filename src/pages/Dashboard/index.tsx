@@ -1,12 +1,8 @@
-import { Card, List, Image, Avatar, Skeleton, Carousel, Form, Input, Popover, Select, Drawer, Alert } from "antd";
+import { Card, List, Image, Avatar, Form, Input, Popover, Select, Drawer, Alert, Button, Space, Row, Col } from "antd";
 import { useEffect, useState } from "react";
 import { GetScriptListParams, ScriptItem } from "../../api/script.type";
 import { getScriptList, likeScript, favoriteScript, cancelFavoriteScript, cancelLikeScript } from "../../api/script";
-import {    
-    EllipsisOutlined,
-    FilterOutlined,
-    SearchOutlined,
-} from "@ant-design/icons";
+import { EllipsisOutlined, FilterOutlined, SearchOutlined } from "@ant-design/icons";
 
 import styles from "./index.module.less";
 import { debounce } from "lodash";
@@ -14,6 +10,7 @@ import { DefaultOptionType } from "antd/es/select";
 import { getScriptPlatforms } from "../../api/common";
 import { IconFont } from "../../components/Iconfont";
 import { ResponseBase } from "../../api/lib/type";
+import { ScriptInfo } from "./ScriptInfo";
 
 const { useForm } = Form;
 
@@ -32,32 +29,39 @@ export const Dashboard: React.FC = () => {
     const query = async () => {
         const res = await getScriptList(listParams);
         setDataSource(res.data);
+        // 找到当前选中的脚本
+        const current = res.data.find((item) => item.scriptUid === currentSelect?.scriptUid);
+        if (current) {
+            setCurrentSelect(current);
+        }
     };
 
     const handleChange = debounce((value: any, values: any) => {
         setListParams({
             ...listParams,
             ...values,
+            scriptPlatformId: values.scriptPlatformId?.value ?? 3,
         });
     }, 500);
 
     const requestMap: Record<string, (scriptUid: string) => Promise<ResponseBase>> = {
-        "like": likeScript,
-        "unlike": cancelLikeScript,
-        "unfavorite": cancelFavoriteScript,
-        "favorite": favoriteScript,
-    }
+        like: likeScript,
+        unlike: cancelLikeScript,
+        unfavorite: cancelFavoriteScript,
+        favorite: favoriteScript,
+    };
 
     const handleActionsClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>, key: string, id: string) => {
         e.stopPropagation();
         const request = requestMap[key];
         if (request) {
-            request(id).then((res) => {
-                console.log(res);
-                query();
-            }).catch((err) => {
-                console.log(err);
-            })
+            request(id)
+                .then((res) => {
+                    query();
+                })
+                .catch((err) => {
+                    console.log(err);
+                });
         }
     };
 
@@ -81,7 +85,7 @@ export const Dashboard: React.FC = () => {
         <div className={styles.filterContent}>
             <Form layout="vertical" form={filterForm} onValuesChange={handleChange}>
                 <Form.Item name="scriptPlatformId" label="选择平台">
-                    <Select options={platformList} placeholder="请输入脚本名称"></Select>
+                    <Select allowClear options={platformList} placeholder="请输入脚本名称"></Select>
                 </Form.Item>
             </Form>
         </div>
@@ -199,13 +203,56 @@ export const Dashboard: React.FC = () => {
                 ></List>
             </div>
             <Drawer
-                title={currentSelect?.scriptName}
+                title={
+                    <div className={styles.drwTitle}>
+                        <Space>
+                            <Avatar
+                                src={currentSelect?.avatar ?? "https://xsgames.co/randomusers/avatar.php?g=pixel"}
+                            />
+                        </Space>
+                        <Space>
+                            <Button
+                                onClick={(e: any) =>
+                                    handleActionsClick(
+                                        e,
+                                        currentSelect?.isFavorite ? "unfavorite" : "favorite",
+                                        currentSelect?.scriptUid ?? ""
+                                    )
+                                }
+                                icon={
+                                    currentSelect?.isFavorite ? (
+                                        <IconFont type="wx_message-shoucang1" />
+                                    ) : (
+                                        <IconFont type="wx_message-shoucang" />
+                                    )
+                                }
+                            ></Button>
+                            <Button
+                                onClick={(e: any) =>
+                                    handleActionsClick(
+                                        e,
+                                        currentSelect?.isLike ? "unlike" : "like",
+                                        currentSelect?.scriptUid ?? ""
+                                    )
+                                }
+                                icon={
+                                    currentSelect?.isLike ? (
+                                        <IconFont type="wx_message-shoucang2" />
+                                    ) : (
+                                        <IconFont type="wx_message-xihuan" />
+                                    )
+                                }
+                            ></Button>
+                            <Button type="primary">使用</Button>
+                        </Space>
+                    </div>
+                }
                 placement="right"
                 mask={false}
                 onClose={() => setOpen(false)}
                 open={open}
             >
-                <Alert description={currentSelect?.scriptDetailedDescription} type="info" />
+                <ScriptInfo scriptUid={currentSelect?.scriptUid}></ScriptInfo>
             </Drawer>
         </>
     );
